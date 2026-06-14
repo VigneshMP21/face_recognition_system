@@ -1,0 +1,45 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String          @id @default(cuid())
+  name          String
+  rollNumber    String          @unique @map("roll_number")
+  email         String         @unique
+  mobile        String
+  passwordHash  String          @map("password_hash")
+  role          String          @default("student")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  faceEmbeddings FaceEmbedding[]
+  attendance     Attendance[]
+
+  @@map("users")
+}
+
+model FaceEmbedding {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  embedding String
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("face_embeddings")
+}
+
+model Attendance {
+  id              String   @id @default(cuid())
+  userId          String   @map("user_id")
+  attendanceDate  String   @map("attendance_date")
+  attendanceTime  String   @map("attendance_time")
+  createdAt       DateTime @default(now()) @map("created_at")
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, attendanceDate])
+  @@map("attendance")
+}
