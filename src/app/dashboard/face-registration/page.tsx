@@ -182,6 +182,17 @@ export default function FaceRegistrationPage() {
             Register your face to use attendance features
           </p>
 
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, y: -5 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 mb-4 text-sm text-red-400 flex items-center gap-2"
+            >
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              {error}
+            </motion.div>
+          )}
+
           <GlassCard glow="indigo" className="!p-12">
             <motion.div
               initial={{ scale: 0 }}
@@ -215,9 +226,12 @@ export default function FaceRegistrationPage() {
               onClick={startCapture}
               disabled={!modelsLoaded}
               className="px-10"
+              loading={!modelsLoaded && !error}
             >
               <Play className="w-5 h-5" />
-              Start Face Registration
+              {!modelsLoaded && !error
+                ? "Loading models..."
+                : "Start Face Registration"}
             </GradientButton>
           </GlassCard>
         </motion.div>
