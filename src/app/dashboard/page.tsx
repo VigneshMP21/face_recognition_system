@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   ScanFace,
   CheckCircle2,
   Clock,
   CalendarDays,
   ArrowRight,
+  AlertCircle,
 } from "lucide-react";
 import GlassCard from "@/components/ui/GlassCard";
 import GradientButton from "@/components/ui/GradientButton";
@@ -19,20 +20,35 @@ export default function DashboardHome() {
   const [user, setUser] = useState<any>(null);
   const [todayAttendance, setTodayAttendance] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [faceRegistered, setFaceRegistered] = useState(false);
+  const [noFaceError, setNoFaceError] = useState(false);
 
   useEffect(() => {
     fetch("/api/auth/user")
       .then((res) => res.json())
       .then((data) => {
         setUser(data.user);
-        return fetch("/api/attendance/today");
+        return Promise.all([
+          fetch("/api/attendance/today"),
+          fetch("/api/face/status"),
+        ]);
       })
-      .then((res) => res.json())
-      .then((data) => {
-        setTodayAttendance(data);
+      .then(async ([attendanceRes, faceRes]) => {
+        const attendanceData = await attendanceRes.json();
+        const faceData = await faceRes.json();
+        setTodayAttendance(attendanceData);
+        setFaceRegistered(faceData.registered);
       })
       .finally(() => setLoading(false));
   }, []);
+
+  const handleMarkAttendanceClick = () => {
+    if (!faceRegistered) {
+      setNoFaceError(true);
+      return;
+    }
+    setCameraOpen(true);
+  };
 
   const handleAttendanceSuccess = async (userData: any) => {
     const res = await fetch("/api/attendance/mark", {
@@ -122,7 +138,7 @@ export default function DashboardHome() {
                   Use face recognition to mark your attendance for today
                 </p>
               </div>
-              <GradientButton onClick={() => setCameraOpen(true)} size="lg">
+              <GradientButton onClick={handleMarkAttendanceClick} size="lg">
                 Mark Attendance <ArrowRight className="w-5 h-5" />
               </GradientButton>
             </div>
@@ -151,6 +167,56 @@ export default function DashboardHome() {
           <p className="text-xs text-gray-500 mt-1">Status</p>
         </GlassCard>
       </div>
+
+      {/* Face Not Registered Modal */}
+      <AnimatePresence>
+        {noFaceError && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="glass rounded-3xl p-8 max-w-sm w-full glow text-center"
+            >
+              <motion.div
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ type: "spring", stiffness: 200 }}
+              >
+                <AlertCircle className="w-16 h-16 text-amber-400 mx-auto mb-4" />
+              </motion.div>
+              <h2 className="text-xl font-bold text-amber-400 mb-2">
+                Face Not Registered
+              </h2>
+              <p className="text-gray-400 mb-6">
+                You have not completed Face Registration yet. Please register your face first before marking attendance.
+              </p>
+              <div className="flex gap-3">
+                <GradientButton
+                  onClick={() => {
+                    setNoFaceError(false);
+                    window.location.href = "/dashboard/face-registration";
+                  }}
+                  className="flex-1"
+                >
+                  Go to Face Registration
+                </GradientButton>
+                <button
+                  onClick={() => setNoFaceError(false)}
+                  className="px-6 py-3 rounded-xl border border-white/10 text-gray-300 hover:text-white hover:bg-white/5 transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

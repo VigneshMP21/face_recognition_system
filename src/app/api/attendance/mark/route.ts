@@ -19,6 +19,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Check if the user has a registered face embedding.
+    const faceEmbedding = await prisma.faceEmbedding.findFirst({
+      where: { userId },
+    });
+
+    if (!faceEmbedding) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Face not registered. Please complete face registration first.",
+          noFaceRegistration: true,
+        },
+        { status: 403 }
+      );
+    }
+
     const today = getTodayDate();
 
     const existing = await prisma.attendance.findUnique({
