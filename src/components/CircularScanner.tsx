@@ -4,8 +4,10 @@ import { useEffect, useRef, ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface CircularScannerProps {
-  /** Whether a valid face is currently detected & positioned */
+  /** Whether a face is physically detected in the frame */
   faceDetected: boolean;
+  /** Whether the face is validly positioned (centered, correct pose, etc.) */
+  isValid?: boolean;
   /** The webcam (or any content) to render inside the circle */
   children: ReactNode;
   /** Diameter in px. Defaults to 320 */
@@ -18,6 +20,7 @@ interface CircularScannerProps {
 
 export default function CircularScanner({
   faceDetected,
+  isValid,
   children,
   size = 320,
   showCaptureFlash = false,
@@ -28,7 +31,8 @@ export default function CircularScanner({
   // Bump flash key every time showCaptureFlash toggles true so AnimatePresence re-mounts it.
   if (showCaptureFlash) flashKey.current += 1;
 
-  const ringClass = faceDetected ? "scanner-ring-green" : "scanner-ring-red";
+  const borderActive = isValid !== undefined ? isValid : faceDetected;
+  const ringClass = borderActive ? "scanner-ring-green" : "scanner-ring-red";
 
   return (
     <div
@@ -39,7 +43,7 @@ export default function CircularScanner({
       <motion.div
         className="absolute inset-0 rounded-full pointer-events-none"
         style={{
-          background: faceDetected
+          background: borderActive
             ? "conic-gradient(from 0deg, transparent 60%, rgba(52,211,153,0.4) 100%)"
             : "conic-gradient(from 0deg, transparent 60%, rgba(239,68,68,0.4) 100%)",
         }}
@@ -52,7 +56,7 @@ export default function CircularScanner({
         className="absolute rounded-full pointer-events-none"
         style={{
           inset: 4,
-          background: faceDetected
+          background: borderActive
             ? "conic-gradient(from 180deg, transparent 70%, rgba(52,211,153,0.25) 100%)"
             : "conic-gradient(from 180deg, transparent 70%, rgba(239,68,68,0.25) 100%)",
         }}
@@ -90,7 +94,7 @@ export default function CircularScanner({
 
       {/* ── Corner bracket marks (premium look) ───────────────── */}
       {(["tl", "tr", "bl", "br"] as const).map((corner) => (
-        <CornerBracket key={corner} corner={corner} active={faceDetected} />
+        <CornerBracket key={corner} corner={corner} active={borderActive} />
       ))}
 
       {/* ── Status dot (bottom-centre) ─────────────────────────── */}

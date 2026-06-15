@@ -23,15 +23,13 @@ import GradientButton from "@/components/ui/GradientButton";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import CircularScanner from "@/components/CircularScanner";
 import FacePoseIllustration, { PoseDirection } from "@/components/FacePoseIllustration";
-
-/* ── Pose configuration ──────────────────────────────────────────── */
-const POSES: { label: string; direction: PoseDirection; instruction: string }[] = [
-  { label: "Front Face",   direction: "front", instruction: "Please look straight at the camera." },
-  { label: "Left Face",    direction: "left",  instruction: "Please turn your face to the left." },
-  { label: "Right Face",   direction: "right", instruction: "Please turn your face to the right." },
-  { label: "Slight Up",    direction: "up",    instruction: "Please tilt your face slightly upward." },
-  { label: "Slight Down",  direction: "down",  instruction: "Please tilt your face slightly downward." },
-];
+import {
+  POSES,
+  estimateHeadPose,
+  isPoseCorrectForStep,
+  getPoseHint,
+  validateFaceQuality,
+} from "@/lib/faceValidation";
 
 /* ── Tutorial tips ───────────────────────────────────────────────── */
 const TIPS = [
@@ -43,108 +41,18 @@ const TIPS = [
 ];
 
 /* ═══════════════════════════════════════════════════════════════════
-   HEAD-POSE ESTIMATION FROM 68-POINT LANDMARKS
-   ─────────────────────────────────────────────────────────────────
-   We estimate yaw (left/right rotation) and pitch (up/down tilt)
-   from the 2D landmark positions on the UNMIRRORED webcam frame.
+   CONSTANTS
+   ───────────────────────────────────────────────────────────────── */
+/** Number of consecutive "all-good" frames required before capture */
+const REQUIRED_STABLE_FRAMES = 3;
+/** ms to wait between scans during stability accumulation */
+const SCAN_INTERVAL_MS = 500;
+/** ms pause after a successful capture before scanning the next pose */
+const CAPTURE_GAP_MS = 1800;
 
-   Yaw:
-     - Nose tip (pt 30) position relative to face width (pts 0–16).
-     - Negative → user turned head to THEIR LEFT.
-     - Positive → user turned head to THEIR RIGHT.
-
-   Pitch:
-     - Ratio of (nose-bottom to eye) vs (chin to eye) vertical span.
-     - Lower ratio → tilted UP.  Higher ratio → tilted DOWN.
-═════════════════════════════════════════════════════════════════════ */
-interface HeadPose { yaw: number; pitch: number }
-
-function estimateHeadPose(landmarks: faceapi.FaceLandmarks68): HeadPose {
-  const pts = landmarks.positions;
-
-  // ── Yaw ──
-  const noseTip = pts[30];
-  const leftJaw = pts[0];   // subject's right jaw → left of unmirrored image
-  const rightJaw = pts[16]; // subject's left jaw  → right of unmirrored image
-  const leftDist  = noseTip.x - leftJaw.x;
-  const rightDist = rightJaw.x - noseTip.x;
-  const yaw = (rightDist - leftDist) / (rightDist + leftDist);
-
-  // ── Pitch ──
-  const eyeY =
-    (pts[36].y + pts[39].y + pts[42].y + pts[45].y) / 4; // eye corner avg
-  const noseBottomY = pts[33].y; // bottom of nose
-  const chinY = pts[8].y;        // chin
-  const pitch = (noseBottomY - eyeY) / (chinY - eyeY);
-
-  return { yaw, pitch };
-}
-
-/* ── Pose thresholds ─────────────────────────────────────────────
-   Tunable per-step thresholds. Values were calibrated for typical
-   laptop/phone webcams at ~50 cm distance.
-──────────────────────────────────────────────────────────────────── */
-function isPoseCorrectForStep(
-  { yaw, pitch }: HeadPose,
-  stepIndex: number
-): boolean {
-  switch (stepIndex) {
-    case 0: // Front Face
-      return Math.abs(yaw) < 0.10 && pitch > 0.38 && pitch < 0.56;
-    case 1: // Left Face  (user turns their head LEFT → yaw < 0)
-      return yaw < -0.12;
-    case 2: // Right Face (user turns their head RIGHT → yaw > 0)
-      return yaw > 0.12;
-    case 3: // Slight Up  (pitch drops when tilting up)
-      return pitch < 0.40 && Math.abs(yaw) < 0.20;
-    case 4: // Slight Down (pitch rises when tilting down)
-      return pitch > 0.55 && Math.abs(yaw) < 0.20;
-    default:
-      return false;
-  }
-}
-
-/* ── Build a contextual hint based on current pose vs required pose */
-function getPoseHint(
-  { yaw, pitch }: HeadPose,
-  stepIndex: number
-): string {
-  const pose = POSES[stepIndex];
-  switch (stepIndex) {
-    case 0:
-      if (Math.abs(yaw) >= 0.10)
-        return "Your face is turned to the side — please look straight ahead.";
-      if (pitch <= 0.38)
-        return "Your face is tilted too far up — please look straight ahead.";
-      if (pitch >= 0.56)
-        return "Your face is tilted too far down — please look straight ahead.";
-      break;
-    case 1:
-      if (yaw >= -0.12)
-        return "Please turn your face more to the left.";
-      break;
-    case 2:
-      if (yaw <= 0.12)
-        return "Please turn your face more to the right.";
-      break;
-    case 3:
-      if (pitch >= 0.40)
-        return "Please tilt your face upward a bit more.";
-      if (Math.abs(yaw) >= 0.20)
-        return "Keep your face centered — just tilt upward.";
-      break;
-    case 4:
-      if (pitch <= 0.55)
-        return "Please tilt your face downward a bit more.";
-      if (Math.abs(yaw) >= 0.20)
-        return "Keep your face centered — just tilt downward.";
-      break;
-  }
-  return pose.instruction;
-}
 
 /* ═══════════════════════════════════════════════════════════════════
-   AUDIO BEEP  (Web Audio API — no external files)
+   AUDIO BEEP (Web Audio API)
 ═════════════════════════════════════════════════════════════════════ */
 function playBeep() {
   try {
@@ -156,17 +64,14 @@ function playBeep() {
     osc.connect(gain);
     gain.connect(ctx.destination);
     osc.type = "sine";
-    // Quick ascending two-tone: D5 → A5
-    osc.frequency.setValueAtTime(587, ctx.currentTime);
-    osc.frequency.setValueAtTime(880, ctx.currentTime + 0.07);
+    osc.frequency.setValueAtTime(587, ctx.currentTime);       // D5
+    osc.frequency.setValueAtTime(880, ctx.currentTime + 0.07); // A5
     gain.gain.setValueAtTime(0.22, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.22);
     osc.start(ctx.currentTime);
     osc.stop(ctx.currentTime + 0.22);
     setTimeout(() => ctx.close(), 500);
-  } catch {
-    // Audio not available — silently fail
-  }
+  } catch { /* silently fail */ }
 }
 
 /* ── Flow stages ─────────────────────────────────────────────────── */
@@ -176,11 +81,12 @@ type Stage = "idle" | "tutorial" | "scanning" | "processing" | "done";
    COMPONENT
 ═════════════════════════════════════════════════════════════════════ */
 export default function FaceRegistrationPage() {
-  const webcamRef         = useRef<Webcam>(null);
-  const scanActiveRef     = useRef(false);
-  const embeddingsRef     = useRef<number[][]>([]);
-  const captureCountRef   = useRef(0);
-  const captureFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const webcamRef          = useRef<Webcam>(null);
+  const scanActiveRef      = useRef(false);
+  const embeddingsRef      = useRef<number[][]>([]);
+  const captureCountRef    = useRef(0);
+  const consecutiveGoodRef = useRef(0);
+  const captureFlashTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [stage, setStage]                   = useState<Stage>("idle");
   const [modelsLoaded, setModelsLoaded]     = useState(false);
@@ -189,6 +95,8 @@ export default function FaceRegistrationPage() {
   const [poseCorrect, setPoseCorrect]       = useState(false);
   const [facePresent, setFacePresent]       = useState(false);
   const [showFlash, setShowFlash]           = useState(false);
+  const [justCaptured, setJustCaptured]     = useState(false);
+  const [stabilityProgress, setStabilityProgress] = useState(0);
   const [error, setError]                   = useState("");
   const [poseHint, setPoseHint]             = useState("");
   const [alreadyRegistered, setAlreadyRegistered] = useState(false);
@@ -218,75 +126,119 @@ export default function FaceRegistrationPage() {
     init();
   }, []);
 
-  /* ── Single-frame face detection ─────────────────────────────── */
+  /* ── Single-frame detection (returns image dims too) ─────────── */
   const doDetect = useCallback(async () => {
     if (!webcamRef.current || !modelsLoaded) return null;
     try {
       const imageSrc = webcamRef.current.getScreenshot();
       if (!imageSrc) return null;
       const img = await faceapi.fetchImage(imageSrc);
-      return await faceapi
-        .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions())
+      const det = await faceapi
+        .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.5 }))
         .withFaceLandmarks()
         .withFaceDescriptor();
+      if (!det) return null;
+      return { det, imgW: img.width, imgH: img.height };
     } catch { return null; }
   }, [modelsLoaded]);
 
   /* ══════════════════════════════════════════════════════════════
-     SCANNING LOOP — with strict per-step pose validation
+     SCANNING LOOP
+     ────────────────────────────────────────────────────────────
+     For every frame:
+       1. Detect face → if none → red border
+       2. Quality check → if fail → red border + hint
+       3. Pose check   → if fail → red border + hint
+       4. All pass      → green border, increment stability counter
+       5. Stability counter reaches REQUIRED → CAPTURE (beep + flash)
   ═══════════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (stage !== "scanning") return;
 
-    scanActiveRef.current   = true;
-    embeddingsRef.current   = [];
-    captureCountRef.current = 0;
+    scanActiveRef.current      = true;
+    embeddingsRef.current      = [];
+    captureCountRef.current    = 0;
+    consecutiveGoodRef.current = 0;
     setCurrentCapture(0);
     setPoseCorrect(false);
     setFacePresent(false);
+    setStabilityProgress(0);
+    setJustCaptured(false);
     setError("");
     setPoseHint("");
 
-    const CAPTURE_GAP = 1800; // ms pause between captures
-    let readyForNext  = true;
+    let readyForNext = true;
 
     const interval = setInterval(async () => {
       if (!scanActiveRef.current || !readyForNext) return;
       readyForNext = false;
 
-      const detection = await doDetect();
+      /* ─── Step 1: Detect ─── */
+      const result = await doDetect();
 
-      if (!scanActiveRef.current) return; // stopped while awaiting
+      if (!scanActiveRef.current) return;
 
-      if (!detection) {
-        /* ─── No face at all ─── */
+      if (!result) {
+        consecutiveGoodRef.current = 0;
         setFacePresent(false);
         setPoseCorrect(false);
+        setStabilityProgress(0);
+        setJustCaptured(false);
         setPoseHint("");
         setError("No face detected — position your face inside the circle.");
         setTimeout(() => { readyForNext = true; }, 400);
         return;
       }
 
-      /* ─── Face found — estimate head pose ─── */
       setFacePresent(true);
       setError("");
 
       const currentStep = captureCountRef.current;
-      const pose = estimateHeadPose(detection.landmarks);
-      const correct = isPoseCorrectForStep(pose, currentStep);
 
-      if (!correct) {
-        /* Pose doesn't match — show hint, keep scanning */
+      /* ─── Step 2: Quality check ─── */
+      const quality = validateFaceQuality(result.det, result.imgW, result.imgH);
+      if (!quality.valid) {
+        consecutiveGoodRef.current = 0;
         setPoseCorrect(false);
-        setPoseHint(getPoseHint(pose, currentStep));
-        setTimeout(() => { readyForNext = true; }, 300); // recheck quickly
+        setStabilityProgress(0);
+        setJustCaptured(false);
+        setPoseHint(quality.hint);
+        setTimeout(() => { readyForNext = true; }, 300);
         return;
       }
 
-      /* ─── Correct pose! Capture this frame ─── */
+      /* ─── Step 3: Pose check ─── */
+      const pose = estimateHeadPose(result.det.landmarks);
+      const correct = isPoseCorrectForStep(pose, currentStep);
+      if (!correct) {
+        consecutiveGoodRef.current = 0;
+        setPoseCorrect(false);
+        setStabilityProgress(0);
+        setJustCaptured(false);
+        setPoseHint(getPoseHint(pose, currentStep));
+        setTimeout(() => { readyForNext = true; }, 300);
+        return;
+      }
+
+      /* ─── Step 4: All checks pass → green border ─── */
       setPoseCorrect(true);
       setPoseHint("");
+      setJustCaptured(false);
+      consecutiveGoodRef.current += 1;
+      setStabilityProgress(consecutiveGoodRef.current);
+
+      if (consecutiveGoodRef.current < REQUIRED_STABLE_FRAMES) {
+        /* Still accumulating stability — recheck on next interval tick */
+        readyForNext = true;
+        return;
+      }
+
+      /* ═══════════════════════════════════════════════════════════
+         Step 5: STABLE + VALID → CAPTURE
+      ═══════════════════════════════════════════════════════════ */
+      consecutiveGoodRef.current = 0;
+      setStabilityProgress(0);
+      setJustCaptured(true);
 
       // Flash + beep
       setShowFlash(true);
@@ -294,24 +246,27 @@ export default function FaceRegistrationPage() {
       if (captureFlashTimer.current) clearTimeout(captureFlashTimer.current);
       captureFlashTimer.current = setTimeout(() => setShowFlash(false), 600);
 
-      const descriptor = Array.from(detection.descriptor);
+      // Save embedding
+      const descriptor = Array.from(result.det.descriptor);
       embeddingsRef.current = [...embeddingsRef.current, descriptor];
       const count = captureCountRef.current + 1;
       captureCountRef.current = count;
       setCurrentCapture(count);
 
       if (count >= POSES.length) {
-        /* ── All 5 poses captured — save ── */
+        /* ── All 5 poses captured — save to server ── */
         scanActiveRef.current = false;
         clearInterval(interval);
-        setStage("processing");
+
+        // Keep green border visible during processing
+        setTimeout(() => setStage("processing"), 600);
 
         try {
           const avg = averageEmbeddings(embeddingsRef.current);
           const res = await fetch("/api/face/register", {
-            method:  "POST",
+            method: "POST",
             headers: { "Content-Type": "application/json" },
-            body:    JSON.stringify({ embedding: avg }),
+            body: JSON.stringify({ embedding: avg }),
           });
           const data = await res.json();
           if (data.success) {
@@ -329,10 +284,14 @@ export default function FaceRegistrationPage() {
         return;
       }
 
-      /* Reset pose flags for the NEXT step, pause before re-scanning */
-      setPoseCorrect(false);
-      setTimeout(() => { readyForNext = true; }, CAPTURE_GAP);
-    }, 600);
+      /* ── Pause with green border, then reset for next pose ── */
+      setTimeout(() => {
+        setPoseCorrect(false);
+        setJustCaptured(false);
+        setStabilityProgress(0);
+        readyForNext = true;
+      }, CAPTURE_GAP_MS);
+    }, SCAN_INTERVAL_MS);
 
     return () => {
       scanActiveRef.current = false;
@@ -355,15 +314,15 @@ export default function FaceRegistrationPage() {
     setCurrentCapture(0);
     setPoseCorrect(false);
     setFacePresent(false);
+    setStabilityProgress(0);
+    setJustCaptured(false);
     setError("");
     setPoseHint("");
     setAlreadyRegistered(true);
   };
 
-  /* ── Loading screen ──────────────────────────────────────────── */
   if (loading) return <LoadingSpinner text="Loading face recognition models..." />;
 
-  /* ── Current pose helper (clamped to valid index) ────────────── */
   const ci = Math.min(currentCapture, POSES.length - 1);
 
   return (
@@ -371,7 +330,7 @@ export default function FaceRegistrationPage() {
       <AnimatePresence mode="wait">
 
         {/* ════════════════════════════════════════════════════════
-            STAGE: idle  (already registered / fresh start)
+            STAGE: idle
         ════════════════════════════════════════════════════════ */}
         {stage === "idle" && (
           <motion.div
@@ -470,7 +429,6 @@ export default function FaceRegistrationPage() {
               </div>
             </GlassCard>
 
-            {/* Pose preview strip */}
             <GlassCard className="!p-6 mb-8">
               <p className="text-sm font-medium text-gray-400 mb-4 text-center">5 Capture Angles</p>
               <div className="flex justify-center gap-4 flex-wrap">
@@ -508,7 +466,7 @@ export default function FaceRegistrationPage() {
         )}
 
         {/* ════════════════════════════════════════════════════════
-            STAGE: scanning  (per-pose with strict validation)
+            STAGE: scanning  (with quality + pose + stability)
         ════════════════════════════════════════════════════════ */}
         {stage === "scanning" && (
           <motion.div
@@ -528,7 +486,7 @@ export default function FaceRegistrationPage() {
               {" "}— {POSES[ci].label}
             </p>
 
-            <div className="flex flex-col items-center gap-8">
+            <div className="flex flex-col items-center gap-6">
               {/* ── Pose guide card ── */}
               <AnimatePresence mode="wait">
                 <motion.div
@@ -540,26 +498,18 @@ export default function FaceRegistrationPage() {
                   className="flex flex-col items-center gap-3 p-5 rounded-2xl border border-indigo-500/20 bg-indigo-500/5 backdrop-blur-sm w-full max-w-xs text-center"
                 >
                   <div className="w-24 h-24 rounded-full bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
-                    <FacePoseIllustration
-                      direction={POSES[ci].direction}
-                      size={72}
-                      active
-                    />
+                    <FacePoseIllustration direction={POSES[ci].direction} size={72} active />
                   </div>
                   <div>
-                    <p className="font-semibold text-white text-sm">
-                      {POSES[ci].label}
-                    </p>
-                    <p className="text-gray-400 text-xs mt-1 leading-relaxed">
-                      {POSES[ci].instruction}
-                    </p>
+                    <p className="font-semibold text-white text-sm">{POSES[ci].label}</p>
+                    <p className="text-gray-400 text-xs mt-1 leading-relaxed">{POSES[ci].instruction}</p>
                   </div>
                 </motion.div>
               </AnimatePresence>
 
               {/* ── Circular scanner ── */}
               <div className="relative" style={{ marginBottom: 48 }}>
-                <CircularScanner faceDetected={poseCorrect} size={320} showCaptureFlash={showFlash}>
+                <CircularScanner faceDetected={facePresent} isValid={poseCorrect} size={320} showCaptureFlash={showFlash}>
                   <Webcam
                     ref={webcamRef}
                     screenshotFormat="image/jpeg"
@@ -570,26 +520,54 @@ export default function FaceRegistrationPage() {
                 </CircularScanner>
               </div>
 
-              {/* ── Pose hint / error ── */}
+              {/* ── Hint / Error banners ── */}
               {error && <ErrorBanner message={error} />}
               {!error && poseHint && facePresent && !poseCorrect && (
                 <motion.div
                   key={poseHint}
                   initial={{ opacity: 0, y: -4 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-sm text-amber-400 w-full max-w-sm mx-auto text-center"
+                  className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-sm text-amber-400 w-full max-w-sm mx-auto"
                 >
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />
                   {poseHint}
                 </motion.div>
               )}
 
+              {/* ── Stability progress dots ── */}
+              {poseCorrect && !justCaptured && stabilityProgress > 0 && stabilityProgress < REQUIRED_STABLE_FRAMES && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex items-center gap-2"
+                >
+                  {Array.from({ length: REQUIRED_STABLE_FRAMES }).map((_, i) => (
+                    <motion.div
+                      key={i}
+                      initial={{ scale: 0.6 }}
+                      animate={{
+                        scale: i < stabilityProgress ? 1.15 : 0.8,
+                        backgroundColor: i < stabilityProgress ? "rgb(52,211,153)" : "rgba(255,255,255,0.12)",
+                      }}
+                      transition={{ duration: 0.25 }}
+                      className="w-2.5 h-2.5 rounded-full"
+                    />
+                  ))}
+                  <span className="text-xs text-emerald-300 ml-1 font-medium">Hold steady…</span>
+                </motion.div>
+              )}
+
               {/* ── Status text ── */}
               <div className="flex items-center gap-2 text-sm">
-                {poseCorrect ? (
+                {justCaptured ? (
                   <>
                     <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    <span className="text-emerald-400 font-medium">Pose matched — captured ✓</span>
+                    <span className="text-emerald-400 font-medium">Captured ✓ — moving to next pose…</span>
+                  </>
+                ) : poseCorrect ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    <span className="text-emerald-400 font-medium">Pose correct — hold steady</span>
                   </>
                 ) : facePresent ? (
                   <>
@@ -605,7 +583,7 @@ export default function FaceRegistrationPage() {
               </div>
 
               {/* ── Progress dots ── */}
-              <div className="flex items-center gap-2 mt-2">
+              <div className="flex items-center gap-2 mt-1">
                 {POSES.map((_, i) => {
                   const done   = i < currentCapture;
                   const active = i === currentCapture;
@@ -666,7 +644,7 @@ export default function FaceRegistrationPage() {
                         <span
                           className={`text-xs font-medium ${
                             done   ? "text-emerald-300" :
-                            active ? "text-white"        :
+                            active ? "text-white"       :
                                      "text-gray-500"
                           }`}
                         >
@@ -706,7 +684,7 @@ export default function FaceRegistrationPage() {
         )}
 
         {/* ════════════════════════════════════════════════════════
-            STAGE: done  (success)
+            STAGE: done
         ════════════════════════════════════════════════════════ */}
         {stage === "done" && (
           <motion.div

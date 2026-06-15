@@ -7,6 +7,7 @@ import { X, Loader2, CheckCircle2, AlertCircle, ScanFace, XCircle } from "lucide
 import GradientButton from "./ui/GradientButton";
 import CircularScanner from "./CircularScanner";
 import * as faceapi from "face-api.js";
+import { validateFaceQuality } from "@/lib/faceValidation";
 
 /* ─────────────────────────────────────────────────────────────────
    face-api descriptors: euclidean distance — lower = more similar.
@@ -54,9 +55,10 @@ export default function CameraModal({
   const busyRef            = useRef(false);
   const doneRef            = useRef(false);
   const intervalRef        = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [facePresent, setFacePresent]           = useState(false);
+  const [faceQualityValid, setFaceQualityValid] = useState(false);
 
-  /* ── Derived: is the face in a "good" position? ──────────────── */
-  const faceReady = scanState === "detected" || scanState === "matched";
+
 
   /* ── Reset on close ──────────────────────────────────────────── */
   useEffect(() => {
@@ -67,6 +69,8 @@ export default function CameraModal({
       storedEmbeddingRef.current = null;
       busyRef.current  = false;
       doneRef.current  = false;
+      setFacePresent(false);
+      setFaceQualityValid(false);
       if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
     }
   }, [open]);
@@ -175,10 +179,26 @@ export default function CameraModal({
         if (doneRef.current) return;
 
         if (!detection) {
+          setFacePresent(false);
+          setFaceQualityValid(false);
           setScanState("scanning");
           setScanMessage("No face detected — position your face inside the circle.");
           return;
         }
+
+        setFacePresent(true);
+
+        // Run quality check on the frame
+        const quality = validateFaceQuality(detection, img.width, img.height);
+        if (!quality.valid) {
+          setFaceQualityValid(false);
+          setScanState("scanning");
+          setScanMessage(quality.hint);
+          return;
+        }
+
+        setFaceQualityValid(true);
+        setScanMessage("Verifying face... Hold steady");
 
         const live     = Array.from(detection.descriptor);
         const stored   = storedEmbeddingRef.current!;
@@ -205,7 +225,7 @@ export default function CameraModal({
       }
     };
 
-    intervalRef.current = setInterval(tick, 700);
+    intervalRef.current = setInterval(tick, 500);
     return () => {
       if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
     };
@@ -216,6 +236,8 @@ export default function CameraModal({
     setMatchedUser(null);
     doneRef.current  = false;
     busyRef.current  = false;
+    setFacePresent(false);
+    setFaceQualityValid(false);
     setScanState("scanning");
     setScanMessage("Position your face inside the circle");
   };
@@ -382,7 +404,7 @@ export default function CameraModal({
                   ) : (
                     /* Circular scanner with live webcam */
                     <div style={{ marginBottom: 40 }}>
-                      <CircularScanner faceDetected={faceReady} size={296}>
+                      <CircularScanner faceDetected={facePresent} isValid={faceQualityValid} size={296}>
                         <Webcam
                           ref={webcamRef}
                           screenshotFormat="image/jpeg"
@@ -397,8 +419,12 @@ export default function CameraModal({
                   {/* Status message */}
                   <div className="text-center px-2">
                     <p className={`text-sm font-medium ${
-                      faceReady || (scanState as string) === "matched"
+                      scanState === "matched"
                         ? "text-emerald-400"
+                        : faceQualityValid
+                        ? "text-emerald-400"
+                        : facePresent
+                        ? "text-amber-400"
                         : "text-gray-300"
                     }`}>
                       {scanMessage}
