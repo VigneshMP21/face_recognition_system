@@ -376,7 +376,7 @@ export default function CameraModal({
                       </h3>
                     </motion.div>
                     <div className="flex gap-3 justify-center mt-6">
-                      <GradientButton onClick={reset}>Retry</GradientButton>
+                      <GradientButton onClick={resetRegister}>Retry</GradientButton>
                       <button
                         onClick={onClose}
                         className="px-6 py-3 rounded-xl border border-white/10 text-gray-300 hover:text-white hover:bg-white/5 transition-all"
