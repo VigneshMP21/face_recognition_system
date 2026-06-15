@@ -5,46 +5,71 @@ import { motion, AnimatePresence } from "framer-motion";
 import Webcam from "react-webcam";
 import * as faceapi from "face-api.js";
 import {
-  Camera,
   CheckCircle2,
   Loader2,
   AlertCircle,
   ScanFace,
   ChevronRight,
+  Lightbulb,
+  Eye,
+  Glasses,
+  Camera,
+  Move,
   Play,
+  RefreshCw,
 } from "lucide-react";
 import GlassCard from "@/components/ui/GlassCard";
 import GradientButton from "@/components/ui/GradientButton";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
+import CircularScanner from "@/components/CircularScanner";
+import FacePoseIllustration, { PoseDirection } from "@/components/FacePoseIllustration";
 
-const CAPTURE_ANGLES = ["Front", "Left", "Right", "Slight Up", "Slight Down"];
+/* ── Pose configuration ──────────────────────────────────────────── */
+const POSES: { label: string; direction: PoseDirection; instruction: string }[] = [
+  { label: "Front Face",   direction: "front", instruction: "Look straight at the camera." },
+  { label: "Left Face",    direction: "left",  instruction: "Turn your face to the left." },
+  { label: "Right Face",   direction: "right", instruction: "Turn your face to the right." },
+  { label: "Slight Up",    direction: "up",    instruction: "Tilt your face slightly upward." },
+  { label: "Slight Down",  direction: "down",  instruction: "Tilt your face slightly downward." },
+];
+
+/* ── Tutorial tips ───────────────────────────────────────────────── */
+const TIPS = [
+  { icon: Lightbulb, text: "Ensure you are in a well-lit area — avoid strong back-lighting." },
+  { icon: Eye,       text: "Keep your face fully visible inside the circular frame." },
+  { icon: Glasses,   text: "Remove sunglasses, masks, or any face coverings." },
+  { icon: Camera,    text: "Hold your device steady during each capture." },
+  { icon: Move,      text: "Follow the on-screen pose guide for each of the 5 angles." },
+];
+
+/* ── Flow stages ─────────────────────────────────────────────────── */
+type Stage = "idle" | "tutorial" | "scanning" | "processing" | "done";
 
 export default function FaceRegistrationPage() {
-  const webcamRef = useRef<Webcam>(null);
-  const scanActiveRef = useRef(false);
-  const embeddingsRef = useRef<number[][]>([]);
-  const captureCountRef = useRef(0);
-  const [modelsLoaded, setModelsLoaded] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [started, setStarted] = useState(false);
+  const webcamRef        = useRef<Webcam>(null);
+  const scanActiveRef    = useRef(false);
+  const embeddingsRef    = useRef<number[][]>([]);
+  const captureCountRef  = useRef(0);
+  const captureFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [stage, setStage]                 = useState<Stage>("idle");
+  const [modelsLoaded, setModelsLoaded]   = useState(false);
+  const [loading, setLoading]             = useState(true);
   const [currentCapture, setCurrentCapture] = useState(0);
-  const [registered, setRegistered] = useState(false);
-  const [error, setError] = useState("");
-  const [faceDetected, setFaceDetected] = useState(false);
-  const [status, setStatus] = useState<"loading" | "ready" | "scanning" | "processing" | "done">("loading");
+  const [faceDetected, setFaceDetected]   = useState(false);
+  const [showFlash, setShowFlash]         = useState(false);
+  const [error, setError]                 = useState("");
   const [alreadyRegistered, setAlreadyRegistered] = useState(false);
 
+  /* ── Load models + check registration status ─────────────────── */
   useEffect(() => {
     async function init() {
       try {
-        // Check if the user already has a registered face.
         try {
-          const statusRes = await fetch("/api/face/status");
+          const statusRes  = await fetch("/api/face/status");
           const statusData = await statusRes.json();
           if (statusData.registered) setAlreadyRegistered(true);
-        } catch {
-          // Non-fatal: continue even if the status check fails.
-        }
+        } catch { /* non-fatal */ }
 
         await Promise.all([
           faceapi.nets.tinyFaceDetector.loadFromUri("https://justadudewhohacks.github.io/face-api.js/models"),
@@ -52,10 +77,8 @@ export default function FaceRegistrationPage() {
           faceapi.nets.faceRecognitionNet.loadFromUri("https://justadudewhohacks.github.io/face-api.js/models"),
         ]);
         setModelsLoaded(true);
-        setStatus("ready");
-      } catch (err) {
-        setError("Failed to load face recognition models");
-        console.error(err);
+      } catch {
+        setError("Failed to load face recognition models. Please refresh.");
       } finally {
         setLoading(false);
       }
@@ -63,6 +86,7 @@ export default function FaceRegistrationPage() {
     init();
   }, []);
 
+  /* ── Single-frame face capture ───────────────────────────────── */
   const doCapture = useCallback(async () => {
     if (!webcamRef.current || !modelsLoaded) return null;
     try {
@@ -73,20 +97,21 @@ export default function FaceRegistrationPage() {
         .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions())
         .withFaceLandmarks()
         .withFaceDescriptor();
-    } catch {
-      return null;
-    }
+    } catch { return null; }
   }, [modelsLoaded]);
 
+  /* ── Scanning loop ───────────────────────────────────────────── */
   useEffect(() => {
-    if (!started || status !== "scanning") return;
+    if (stage !== "scanning") return;
 
-    scanActiveRef.current = true;
-    embeddingsRef.current = [];
+    scanActiveRef.current  = true;
+    embeddingsRef.current  = [];
     captureCountRef.current = 0;
     setCurrentCapture(0);
+    setFaceDetected(false);
+    setError("");
 
-    const CAPTURE_GAP = 1800;
+    const CAPTURE_GAP = 1800; // ms between captures
     let readyForNext = true;
 
     const interval = setInterval(async () => {
@@ -94,10 +119,17 @@ export default function FaceRegistrationPage() {
       readyForNext = false;
 
       const detection = await doCapture();
+
+      if (!scanActiveRef.current) return; // stopped while awaiting
+
       if (detection) {
         setFaceDetected(true);
-        setTimeout(() => setFaceDetected(false), 600);
         setError("");
+
+        /* ── Fire capture flash ── */
+        setShowFlash(true);
+        if (captureFlashTimer.current) clearTimeout(captureFlashTimer.current);
+        captureFlashTimer.current = setTimeout(() => setShowFlash(false), 600);
 
         const descriptor = Array.from(detection.descriptor);
         embeddingsRef.current = [...embeddingsRef.current, descriptor];
@@ -105,43 +137,41 @@ export default function FaceRegistrationPage() {
         captureCountRef.current = count;
         setCurrentCapture(count);
 
-        if (count >= CAPTURE_ANGLES.length) {
+        if (count >= POSES.length) {
+          /* All poses captured — save */
           scanActiveRef.current = false;
           clearInterval(interval);
-          setStatus("processing");
+          setStage("processing");
 
           try {
             const avg = averageEmbeddings(embeddingsRef.current);
-            const res = await fetch("/api/face/register", {
-              method: "POST",
+            const res  = await fetch("/api/face/register", {
+              method:  "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ embedding: avg }),
+              body:    JSON.stringify({ embedding: avg }),
             });
             const data = await res.json();
             if (data.success) {
-              setStatus("done");
-              setRegistered(true);
+              setStage("done");
             } else {
-              setError(data.error || "Registration failed");
-              setStatus("scanning");
+              setError(data.error || "Registration failed. Please try again.");
+              setStage("scanning");
               scanActiveRef.current = true;
             }
           } catch {
-            setError("Failed to save face data");
-            setStatus("scanning");
+            setError("Failed to save face data. Please try again.");
+            setStage("scanning");
             scanActiveRef.current = true;
           }
           return;
         }
 
-        setTimeout(() => {
-          readyForNext = true;
-        }, CAPTURE_GAP);
+        /* Brief pause then move to next pose */
+        setTimeout(() => { readyForNext = true; }, CAPTURE_GAP);
       } else {
-        setError("No face detected. Position your face properly.");
-        setTimeout(() => {
-          readyForNext = true;
-        }, 500);
+        setFaceDetected(false);
+        setError("No face detected — position your face inside the circle.");
+        setTimeout(() => { readyForNext = true; }, 500);
       }
     }, 700);
 
@@ -149,304 +179,413 @@ export default function FaceRegistrationPage() {
       scanActiveRef.current = false;
       clearInterval(interval);
     };
-  }, [started, status, doCapture]);
+  }, [stage, doCapture]);
 
+  /* ── Helpers ─────────────────────────────────────────────────── */
   function averageEmbeddings(emb: number[][]): number[] {
     const avg = new Array(emb[0].length).fill(0);
-    for (const e of emb) {
-      for (let i = 0; i < e.length; i++) {
-        avg[i] += e[i] / emb.length;
-      }
-    }
+    for (const e of emb) for (let i = 0; i < e.length; i++) avg[i] += e[i] / emb.length;
     return avg;
   }
 
-  const startCapture = () => {
-    setStarted(true);
-    setStatus("scanning");
-  };
-
+  const goToTutorial = () => { setError(""); setStage("tutorial"); };
+  const startCapture = () => { setError(""); setStage("scanning"); };
   const reset = () => {
-    setStarted(false);
+    setStage("idle");
     setCurrentCapture(0);
-    setRegistered(false);
-    setAlreadyRegistered(true);
-    setError("");
     setFaceDetected(false);
-    setStatus("ready");
+    setError("");
+    setAlreadyRegistered(true);
   };
 
+  /* ── Loading screen ──────────────────────────────────────────── */
   if (loading) return <LoadingSpinner text="Loading face recognition models..." />;
 
   return (
     <div className="max-w-3xl mx-auto">
-      {!started ? (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-center"
-        >
-          <h1 className="text-2xl md:text-3xl font-bold text-white mb-2">
-            Face Registration
-          </h1>
-          <p className="text-gray-400 mb-8">
-            Register your face to use attendance features
-          </p>
+      <AnimatePresence mode="wait">
 
-          {error && (
+        {/* ════════════════════════════════════════════════════════
+            STAGE: idle  (already registered / fresh start)
+        ════════════════════════════════════════════════════════ */}
+        {stage === "idle" && (
+          <motion.div
+            key="idle"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="text-center"
+          >
+            <h1 className="text-2xl md:text-3xl font-bold text-white mb-2">Face Registration</h1>
+            <p className="text-gray-400 mb-8">Register your face to use attendance features</p>
+
+            {error && <ErrorBanner message={error} />}
+
+            {alreadyRegistered ? (
+              <GlassCard glow="cyan" className="!p-12">
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: "spring", stiffness: 200, delay: 0.2 }}
+                  className="w-24 h-24 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-6"
+                >
+                  <CheckCircle2 className="w-12 h-12 text-emerald-400" />
+                </motion.div>
+                <h2 className="text-2xl font-bold text-emerald-400 mb-3">✅ Face Registered</h2>
+                <p className="text-gray-400 mb-8 max-w-md mx-auto">
+                  Your face is already registered. You can now mark attendance. If your appearance has
+                  changed, re-register to update your facial signature.
+                </p>
+                <GradientButton onClick={goToTutorial} disabled={!modelsLoaded} className="px-10">
+                  <RefreshCw className="w-5 h-5" />
+                  Re-register Face
+                </GradientButton>
+              </GlassCard>
+            ) : (
+              <GlassCard glow="indigo" className="!p-12">
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: "spring", stiffness: 200, delay: 0.2 }}
+                  className="w-24 h-24 rounded-full bg-indigo-500/20 flex items-center justify-center mx-auto mb-6"
+                >
+                  <ScanFace className="w-12 h-12 text-indigo-400" />
+                </motion.div>
+                <h2 className="text-xl font-semibold text-white mb-3">Ready to Register Your Face?</h2>
+                <p className="text-gray-400 mb-8 max-w-md mx-auto">
+                  We'll capture your face from 5 different angles to create a secure facial signature.
+                </p>
+                <GradientButton
+                  onClick={goToTutorial}
+                  disabled={!modelsLoaded}
+                  loading={!modelsLoaded && !error}
+                  className="px-10"
+                >
+                  <Play className="w-5 h-5" />
+                  {!modelsLoaded && !error ? "Loading models…" : "Start Face Registration"}
+                </GradientButton>
+              </GlassCard>
+            )}
+          </motion.div>
+        )}
+
+        {/* ════════════════════════════════════════════════════════
+            STAGE: tutorial
+        ════════════════════════════════════════════════════════ */}
+        {stage === "tutorial" && (
+          <motion.div
+            key="tutorial"
+            initial={{ opacity: 0, x: 40 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -40 }}
+          >
+            <h1 className="text-2xl md:text-3xl font-bold text-white mb-1 text-center">
+              Before We Begin
+            </h1>
+            <p className="text-gray-400 text-center mb-8">
+              Follow these tips for the best registration result
+            </p>
+
+            <GlassCard glow="indigo" className="!p-8 mb-6">
+              <div className="space-y-4">
+                {TIPS.map(({ icon: Icon, text }, i) => (
+                  <motion.div
+                    key={i}
+                    initial={{ opacity: 0, x: -16 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.08 }}
+                    className="flex items-start gap-4 p-3 rounded-xl bg-white/5 border border-white/5"
+                  >
+                    <div className="w-9 h-9 rounded-lg bg-indigo-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <Icon className="w-4 h-4 text-indigo-400" />
+                    </div>
+                    <p className="text-sm text-gray-300 leading-relaxed">{text}</p>
+                  </motion.div>
+                ))}
+              </div>
+            </GlassCard>
+
+            {/* Pose preview strip */}
+            <GlassCard className="!p-6 mb-8">
+              <p className="text-sm font-medium text-gray-400 mb-4 text-center">5 Capture Angles</p>
+              <div className="flex justify-center gap-4 flex-wrap">
+                {POSES.map((p, i) => (
+                  <motion.div
+                    key={p.label}
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.4 + i * 0.08 }}
+                    className="flex flex-col items-center gap-2"
+                  >
+                    <div className="w-14 h-14 rounded-full bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
+                      <FacePoseIllustration direction={p.direction} size={44} />
+                    </div>
+                    <span className="text-[10px] text-gray-500 font-medium text-center leading-tight w-14">{p.label}</span>
+                    <span className="w-5 h-5 rounded-full bg-indigo-500/20 text-indigo-300 text-[10px] font-bold flex items-center justify-center">{i + 1}</span>
+                  </motion.div>
+                ))}
+              </div>
+            </GlassCard>
+
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={() => setStage("idle")}
+                className="px-6 py-3 rounded-xl border border-white/10 text-gray-300 hover:text-white hover:bg-white/5 transition-all text-sm"
+              >
+                ← Back
+              </button>
+              <GradientButton onClick={startCapture} className="px-12">
+                <Camera className="w-5 h-5" />
+                Start Capture
+              </GradientButton>
+            </div>
+          </motion.div>
+        )}
+
+        {/* ════════════════════════════════════════════════════════
+            STAGE: scanning
+        ════════════════════════════════════════════════════════ */}
+        {stage === "scanning" && (
+          <motion.div
+            key="scanning"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+          >
+            <h1 className="text-2xl md:text-3xl font-bold text-white mb-1 text-center">
+              Face Registration
+            </h1>
+            <p className="text-gray-400 text-center mb-6">
+              Capture{" "}
+              <span className="text-indigo-400 font-semibold">
+                {currentCapture + 1} of {POSES.length}
+              </span>
+              {" "}— {POSES[Math.min(currentCapture, POSES.length - 1)].label}
+            </p>
+
+            <div className="flex flex-col items-center gap-8">
+              {/* ── Pose guide card ── */}
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={currentCapture}
+                  initial={{ opacity: 0, scale: 0.9, y: 10 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.9, y: -10 }}
+                  transition={{ duration: 0.3 }}
+                  className="flex flex-col items-center gap-3 p-5 rounded-2xl border border-indigo-500/20 bg-indigo-500/5 backdrop-blur-sm w-full max-w-xs text-center"
+                >
+                  <div className="w-24 h-24 rounded-full bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
+                    <FacePoseIllustration
+                      direction={POSES[Math.min(currentCapture, POSES.length - 1)].direction}
+                      size={72}
+                      active
+                    />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-white text-sm">
+                      {POSES[Math.min(currentCapture, POSES.length - 1)].label}
+                    </p>
+                    <p className="text-gray-400 text-xs mt-1 leading-relaxed">
+                      {POSES[Math.min(currentCapture, POSES.length - 1)].instruction}
+                    </p>
+                  </div>
+                </motion.div>
+              </AnimatePresence>
+
+              {/* ── Circular scanner ── */}
+              <div className="relative" style={{ marginBottom: 48 }}>
+                <CircularScanner faceDetected={faceDetected} size={320} showCaptureFlash={showFlash}>
+                  <Webcam
+                    ref={webcamRef}
+                    screenshotFormat="image/jpeg"
+                    className="w-full h-full object-cover"
+                    mirrored
+                    style={{ borderRadius: "50%" }}
+                  />
+                </CircularScanner>
+              </div>
+
+              {/* Error banner */}
+              {error && <ErrorBanner message={error} />}
+
+              {/* Status text */}
+              <div className="flex items-center gap-2 text-sm">
+                <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
+                <span className="text-gray-400">
+                  {faceDetected ? "Face detected — capturing…" : "Scanning for face…"}
+                </span>
+              </div>
+
+              {/* Progress dots */}
+              <div className="flex items-center gap-2 mt-2">
+                {POSES.map((_, i) => {
+                  const done   = i < currentCapture;
+                  const active = i === currentCapture;
+                  return (
+                    <motion.div
+                      key={i}
+                      animate={active ? { scale: [1, 1.3, 1] } : {}}
+                      transition={{ duration: 0.8, repeat: Infinity }}
+                      className={`rounded-full transition-all duration-300 ${
+                        done   ? "w-3 h-3 bg-emerald-400"   :
+                        active ? "w-4 h-4 bg-indigo-400"    :
+                                 "w-2.5 h-2.5 bg-white/20"
+                      }`}
+                    />
+                  );
+                })}
+              </div>
+
+              {/* Progress bar */}
+              <div className="w-full max-w-xs">
+                <div className="flex justify-between text-xs text-gray-500 mb-1.5">
+                  <span>Progress</span>
+                  <span>{currentCapture} / {POSES.length}</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
+                  <motion.div
+                    className="h-full bg-gradient-to-r from-indigo-500 to-cyan-400 rounded-full"
+                    animate={{ width: `${(currentCapture / POSES.length) * 100}%` }}
+                    transition={{ duration: 0.5 }}
+                  />
+                </div>
+              </div>
+
+              {/* Step list */}
+              <GlassCard className="!p-4 w-full max-w-xs">
+                <div className="space-y-2">
+                  {POSES.map((pose, i) => {
+                    const done   = i < currentCapture;
+                    const active = i === currentCapture;
+                    return (
+                      <div
+                        key={pose.label}
+                        className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-all ${
+                          done   ? "bg-emerald-500/10 border border-emerald-500/20" :
+                          active ? "bg-indigo-500/10 border border-indigo-500/20"   :
+                                   "bg-white/3 border border-white/5"
+                        }`}
+                      >
+                        <div
+                          className={`w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                            done   ? "bg-emerald-500 text-white"  :
+                            active ? "bg-indigo-500 text-white"   :
+                                     "bg-white/10 text-gray-500"
+                          }`}
+                        >
+                          {done ? <CheckCircle2 className="w-3.5 h-3.5" /> : i + 1}
+                        </div>
+                        <span
+                          className={`text-xs font-medium ${
+                            done   ? "text-emerald-300" :
+                            active ? "text-white"        :
+                                     "text-gray-500"
+                          }`}
+                        >
+                          {pose.label}
+                        </span>
+                        {done && <ChevronRight className="w-3.5 h-3.5 text-emerald-400 ml-auto" />}
+                      </div>
+                    );
+                  })}
+                </div>
+              </GlassCard>
+            </div>
+          </motion.div>
+        )}
+
+        {/* ════════════════════════════════════════════════════════
+            STAGE: processing
+        ════════════════════════════════════════════════════════ */}
+        {stage === "processing" && (
+          <motion.div
+            key="processing"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="flex flex-col items-center justify-center gap-6 py-24"
+          >
             <motion.div
-              initial={{ opacity: 0, y: -5 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 mb-4 text-sm text-red-400 flex items-center gap-2"
+              className="w-20 h-20 rounded-full bg-indigo-500/20 flex items-center justify-center"
+              animate={{ scale: [1, 1.1, 1] }}
+              transition={{ duration: 1.2, repeat: Infinity }}
             >
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              {error}
+              <Loader2 className="w-10 h-10 animate-spin text-indigo-400" />
             </motion.div>
-          )}
+            <p className="text-white font-semibold">Saving your facial signature…</p>
+            <p className="text-gray-500 text-sm">Please wait a moment</p>
+          </motion.div>
+        )}
 
-          {alreadyRegistered ? (
-            <GlassCard glow="cyan" className="!p-12">
+        {/* ════════════════════════════════════════════════════════
+            STAGE: done  (success)
+        ════════════════════════════════════════════════════════ */}
+        {stage === "done" && (
+          <motion.div
+            key="done"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <GlassCard glow="cyan" className="!p-12 text-center">
               <motion.div
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
-                transition={{ type: "spring", stiffness: 200, delay: 0.2 }}
+                transition={{ type: "spring", stiffness: 200, delay: 0.1 }}
                 className="w-24 h-24 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-6"
               >
                 <CheckCircle2 className="w-12 h-12 text-emerald-400" />
               </motion.div>
 
-              <h2 className="text-2xl font-bold text-emerald-400 mb-3">
-                ✅ Face Registered Successfully
-              </h2>
-              <p className="text-gray-400 mb-8 max-w-md mx-auto">
-                Your face is already registered. You can now use face recognition
-                to mark attendance. If your appearance has changed, you can
-                re-register to update your facial signature.
-              </p>
-
-              <GradientButton onClick={startCapture} disabled={!modelsLoaded} className="px-10">
-                <ScanFace className="w-5 h-5" />
-                Re-register Face
-              </GradientButton>
-            </GlassCard>
-          ) : (
-            <GlassCard glow="indigo" className="!p-12">
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ type: "spring", stiffness: 200, delay: 0.2 }}
-                className="w-24 h-24 rounded-full bg-indigo-500/20 flex items-center justify-center mx-auto mb-6"
+              <motion.h2
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.25 }}
+                className="text-2xl font-bold text-emerald-400 mb-3"
               >
-                <ScanFace className="w-12 h-12 text-indigo-400" />
-              </motion.div>
-
-              <h2 className="text-xl font-semibold text-white mb-3">
-                Ready to Register Your Face?
-              </h2>
-              <p className="text-gray-400 mb-6 max-w-md mx-auto">
-                We'll capture your face from 5 angles to create a secure facial
-                signature. Make sure you're in a well-lit area.
-              </p>
-
-              <div className="grid grid-cols-5 gap-3 max-w-sm mx-auto mb-8">
-                {CAPTURE_ANGLES.map((angle, i) => (
-                  <div key={angle} className="text-center p-2 rounded-lg bg-white/5">
-                    <div className="w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center mx-auto mb-1">
-                      <span className="text-xs font-bold text-indigo-300">{i + 1}</span>
-                    </div>
-                    <span className="text-[10px] text-gray-500 leading-tight block">{angle}</span>
-                  </div>
-                ))}
-              </div>
-
-              <GradientButton
-                onClick={startCapture}
-                disabled={!modelsLoaded}
-                className="px-10"
-                loading={!modelsLoaded && !error}
+                🎉 Face Registered Successfully!
+              </motion.h2>
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.35 }}
+                className="text-gray-400 mb-8 max-w-sm mx-auto"
               >
-                <Play className="w-5 h-5" />
-                {!modelsLoaded && !error
-                  ? "Loading models..."
-                  : "Start Face Registration"}
-              </GradientButton>
+                Your face has been captured from all 5 angles and saved securely.
+                You can now use face recognition to mark attendance.
+              </motion.p>
+
+              <div className="flex gap-3 justify-center flex-wrap">
+                <GradientButton onClick={reset}>
+                  <RefreshCw className="w-4 h-4" />
+                  Register Again
+                </GradientButton>
+                <a
+                  href="/dashboard"
+                  className="px-6 py-3 rounded-xl border border-white/10 text-gray-300 hover:text-white hover:bg-white/5 transition-all text-sm font-medium"
+                >
+                  Go to Dashboard
+                </a>
+              </div>
             </GlassCard>
-          )}
-        </motion.div>
-      ) : registered ? (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-        >
-          <GlassCard glow="cyan" className="!p-10 text-center">
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ type: "spring", stiffness: 200 }}
-            >
-              <CheckCircle2 className="w-20 h-20 text-emerald-400 mx-auto mb-4" />
-            </motion.div>
-            <h2 className="text-2xl font-bold text-emerald-400 mb-2">
-              Successfully Added Your Face!
-            </h2>
-            <p className="text-gray-400 mb-6">
-              Your face has been registered across all 5 angles. You can now use
-              face recognition to mark attendance.
-            </p>
-            <GradientButton onClick={reset}>Register Again</GradientButton>
-          </GlassCard>
-        </motion.div>
-      ) : (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
-          <h1 className="text-2xl md:text-3xl font-bold text-white mb-2">
-            Face Registration
-          </h1>
-          <p className="text-gray-400 mb-6">
-            Position your face for{" "}
-            <span className="text-indigo-400 font-semibold">
-              {CAPTURE_ANGLES[currentCapture]}
-            </span>
-          </p>
+          </motion.div>
+        )}
 
-          <GlassCard glow="indigo">
-            <div className="grid md:grid-cols-2 gap-6">
-              <div>
-                <div className="relative rounded-2xl overflow-hidden bg-black/50 aspect-[4/3] mb-4">
-                  {modelsLoaded ? (
-                    <>
-                      <Webcam
-                        ref={webcamRef}
-                        screenshotFormat="image/jpeg"
-                        className="w-full h-full object-cover"
-                        mirrored
-                      />
-                      <div
-                        className={`absolute inset-0 rounded-2xl transition-all duration-300 pointer-events-none ${
-                          faceDetected
-                            ? "ring-4 ring-emerald-400 shadow-[0_0_30px_rgba(52,211,153,0.5)]"
-                            : "ring-1 ring-white/10"
-                        }`}
-                      />
-                      <motion.div
-                        className="absolute left-4 right-4 h-0.5 bg-gradient-to-r from-transparent via-indigo-500 to-transparent"
-                        animate={{ top: ["10%", "90%"] }}
-                        transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                      />
-                      {faceDetected && (
-                        <motion.div
-                          initial={{ opacity: 0, scale: 0.8 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          exit={{ opacity: 0 }}
-                          className="absolute top-3 right-3 bg-emerald-500/80 backdrop-blur-sm text-white text-xs font-semibold px-3 py-1.5 rounded-full flex items-center gap-1.5"
-                        >
-                          <CheckCircle2 className="w-3 h-3" />
-                          Face Captured
-                        </motion.div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="flex items-center justify-center h-full">
-                      <Loader2 className="w-8 h-8 animate-spin text-indigo-400" />
-                    </div>
-                  )}
-                </div>
-
-                {error && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -5 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 mb-4 text-sm text-red-400 flex items-center gap-2"
-                  >
-                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                    {error}
-                  </motion.div>
-                )}
-
-                <div className="flex items-center gap-2 text-indigo-300 text-sm font-medium">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Scanning for face...
-                </div>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                  <ScanFace className="w-5 h-5 text-indigo-400" />
-                  Capture Progress
-                </h3>
-                <div className="space-y-3">
-                  {CAPTURE_ANGLES.map((angle, i) => {
-                    const captured = i < currentCapture;
-                    const active = i === currentCapture;
-                    return (
-                      <motion.div
-                        key={angle}
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: i * 0.1 }}
-                        className={`flex items-center gap-3 p-3 rounded-xl transition-all ${
-                          captured
-                            ? "bg-emerald-500/10 border border-emerald-500/20"
-                            : active
-                            ? "bg-indigo-500/10 border border-indigo-500/20"
-                            : "bg-white/5 border border-white/5"
-                        }`}
-                      >
-                        <div
-                          className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold ${
-                            captured
-                              ? "bg-emerald-500 text-white"
-                              : active
-                              ? "bg-indigo-500 text-white"
-                              : "bg-white/10 text-gray-500"
-                          }`}
-                        >
-                          {captured ? <CheckCircle2 className="w-4 h-4" /> : i + 1}
-                        </div>
-                        <span
-                          className={`text-sm font-medium ${
-                            captured
-                              ? "text-emerald-300"
-                              : active
-                              ? "text-white"
-                              : "text-gray-500"
-                          }`}
-                        >
-                          {angle}
-                        </span>
-                        {captured && (
-                          <ChevronRight className="w-4 h-4 text-emerald-400 ml-auto" />
-                        )}
-                      </motion.div>
-                    );
-                  })}
-                </div>
-
-                <div className="mt-6">
-                  <div className="flex items-center justify-between text-sm text-gray-400 mb-2">
-                    <span>Overall Progress</span>
-                    <span>
-                      {currentCapture} / {CAPTURE_ANGLES.length}
-                    </span>
-                  </div>
-                  <div className="h-2 rounded-full bg-white/5 overflow-hidden">
-                    <motion.div
-                      className="h-full bg-gradient-to-r from-indigo-500 to-cyan-500 rounded-full"
-                      initial={{ width: 0 }}
-                      animate={{
-                        width: `${(currentCapture / CAPTURE_ANGLES.length) * 100}%`,
-                      }}
-                      transition={{ duration: 0.5 }}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </GlassCard>
-        </motion.div>
-      )}
+      </AnimatePresence>
     </div>
+  );
+}
+
+/* ── Error banner sub-component ──────────────────────────────────── */
+function ErrorBanner({ message }: { message: string }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -5 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-xl p-3 mb-4 text-sm text-red-400 w-full max-w-md mx-auto"
+    >
+      <AlertCircle className="w-4 h-4 flex-shrink-0" />
+      {message}
+    </motion.div>
   );
 }

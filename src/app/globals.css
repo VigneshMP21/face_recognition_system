@@ -135,3 +135,91 @@ body {
   transform: translateY(-4px);
   box-shadow: 0 8px 32px rgba(99, 102, 241, 0.15);
 }
+
+/* ── Circular Scanner Ring Animations ─────────────────────────── */
+
+@keyframes glow-red-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 0px rgba(239, 68, 68, 0),
+      0 0 20px rgba(239, 68, 68, 0.5),
+      0 0 50px rgba(239, 68, 68, 0.25),
+      inset 0 0 20px rgba(239, 68, 68, 0.1);
+  }
+  50% {
+    box-shadow:
+      0 0 0 8px rgba(239, 68, 68, 0.08),
+      0 0 35px rgba(239, 68, 68, 0.7),
+      0 0 80px rgba(239, 68, 68, 0.35),
+      inset 0 0 30px rgba(239, 68, 68, 0.15);
+  }
+}
+
+@keyframes glow-green-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 0px rgba(52, 211, 153, 0),
+      0 0 20px rgba(52, 211, 153, 0.5),
+      0 0 50px rgba(52, 211, 153, 0.25),
+      inset 0 0 20px rgba(52, 211, 153, 0.1);
+  }
+  50% {
+    box-shadow:
+      0 0 0 8px rgba(52, 211, 153, 0.1),
+      0 0 40px rgba(52, 211, 153, 0.75),
+      0 0 90px rgba(52, 211, 153, 0.4),
+      inset 0 0 30px rgba(52, 211, 153, 0.15);
+  }
+}
+
+@keyframes scanner-sweep {
+  0%   { top: 5%; opacity: 0.8; }
+  45%  { opacity: 1; }
+  50%  { top: 90%; opacity: 0.8; }
+  95%  { opacity: 1; }
+  100% { top: 5%; opacity: 0.8; }
+}
+
+@keyframes ring-rotate {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes capture-flash {
+  0%   { opacity: 0; }
+  20%  { opacity: 0.6; }
+  100% { opacity: 0; }
+}
+
+.scanner-ring-red {
+  border: 10px solid rgb(239, 68, 68);
+  animation: glow-red-pulse 1.6s ease-in-out infinite;
+  transition: border-color 0.4s ease, box-shadow 0.4s ease;
+}
+
+.scanner-ring-green {
+  border: 10px solid rgb(52, 211, 153);
+  animation: glow-green-pulse 1.4s ease-in-out infinite;
+  transition: border-color 0.4s ease, box-shadow 0.4s ease;
+}
+
+.scanner-sweep-line {
+  position: absolute;
+  left: 5%;
+  right: 5%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(99,102,241,0.9), transparent);
+  border-radius: 999px;
+  pointer-events: none;
+  animation: scanner-sweep 2.2s ease-in-out infinite;
+}
+
+.scanner-capture-flash {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(52, 211, 153, 0.25);
+  pointer-events: none;
+  animation: capture-flash 0.6s ease-out forwards;
+}
+

@@ -50,18 +50,15 @@ export default function DashboardHome() {
     setCameraOpen(true);
   };
 
-  const handleAttendanceSuccess = async (userData: any) => {
-    const res = await fetch("/api/attendance/mark", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: userData.id || user?.id }),
-    });
-    const data = await res.json();
-    if (data.success) {
-      setTodayAttendance({ marked: true, attendance: data.attendance });
-    } else if (data.alreadyMarked) {
+  // CameraModal already marks attendance internally.
+  // This callback only updates the local UI state.
+  const handleAttendanceSuccess = (userData: any) => {
+    if (userData?.alreadyMarked) {
       setTodayAttendance({ marked: true });
+    } else {
+      setTodayAttendance({ marked: true, attendance: userData });
     }
+    setCameraOpen(false);
   };
 
   if (loading) {

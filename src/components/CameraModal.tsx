@@ -3,9 +3,32 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Webcam from "react-webcam";
-import { X, Camera, Loader2, CheckCircle2, AlertCircle, ScanFace } from "lucide-react";
+import { X, Loader2, CheckCircle2, AlertCircle, ScanFace, XCircle } from "lucide-react";
 import GradientButton from "./ui/GradientButton";
+import CircularScanner from "./CircularScanner";
 import * as faceapi from "face-api.js";
+
+/* ─────────────────────────────────────────────────────────────────
+   face-api descriptors: euclidean distance — lower = more similar.
+   ~0.5 is a well-tuned threshold for TinyFaceDetector.
+──────────────────────────────────────────────────────────────────── */
+const MATCH_THRESHOLD = 0.5;
+
+function euclideanDistance(a: number[], b: number[]): number {
+  let sum = 0;
+  for (let i = 0; i < a.length; i++) { const d = a[i] - b[i]; sum += d * d; }
+  return Math.sqrt(sum);
+}
+
+type ScanState =
+  | "loading"   // loading models / stored embedding
+  | "scanning"  // looking for a face
+  | "detected"  // face found, not yet matched
+  | "matched"   // face matched → marking attendance
+  | "success"   // attendance marked ✓
+  | "already"   // already marked today
+  | "no_match"  // face detected but does NOT match
+  | "error";    // some failure
 
 interface CameraModalProps {
   open: boolean;
@@ -15,28 +38,6 @@ interface CameraModalProps {
   onError?: (error: string) => void;
 }
 
-// face-api descriptors are matched with euclidean distance.
-// Lower distance = more similar. ~0.5 is a common threshold.
-const MATCH_THRESHOLD = 0.5;
-
-function euclideanDistance(a: number[], b: number[]): number {
-  let sum = 0;
-  for (let i = 0; i < a.length; i++) {
-    const d = a[i] - b[i];
-    sum += d * d;
-  }
-  return Math.sqrt(sum);
-}
-
-type ScanState =
-  | "loading" // loading models / embedding
-  | "scanning" // looking for a face
-  | "detected" // face found, not yet matched
-  | "matched" // face matched -> marking
-  | "success" // attendance marked
-  | "already" // already marked today
-  | "error"; // some failure
-
 export default function CameraModal({
   open,
   onClose,
@@ -44,47 +45,33 @@ export default function CameraModal({
   onSuccess,
   onError,
 }: CameraModalProps) {
-  const webcamRef = useRef<Webcam>(null);
+  const webcamRef          = useRef<Webcam>(null);
   const [modelsLoaded, setModelsLoaded] = useState(false);
-
-  // ---- register mode state (manual capture) ----
-  const [loading, setLoading] = useState(false);
-  const [capturing, setCapturing] = useState(false);
-  const [result, setResult] = useState<{
-    success?: boolean;
-    message?: string;
-    data?: any;
-  } | null>(null);
-
-  // ---- attendance mode state (automatic scanning) ----
-  const [scanState, setScanState] = useState<ScanState>("loading");
-  const [scanMessage, setScanMessage] = useState("Loading face recognition...");
-  const [matchedUser, setMatchedUser] = useState<any>(null);
+  const [scanState, setScanState]       = useState<ScanState>("loading");
+  const [scanMessage, setScanMessage]   = useState("Loading face recognition…");
+  const [matchedUser, setMatchedUser]   = useState<any>(null);
   const storedEmbeddingRef = useRef<number[] | null>(null);
-  const busyRef = useRef(false); // prevents concurrent detections
-  const doneRef = useRef(false); // stops loop after success/already
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const busyRef            = useRef(false);
+  const doneRef            = useRef(false);
+  const intervalRef        = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Reset everything when the modal closes.
+  /* ── Derived: is the face in a "good" position? ──────────────── */
+  const faceReady = scanState === "detected" || scanState === "matched";
+
+  /* ── Reset on close ──────────────────────────────────────────── */
   useEffect(() => {
     if (!open) {
-      setResult(null);
-      setCapturing(false);
-      setLoading(false);
       setScanState("loading");
-      setScanMessage("Loading face recognition...");
+      setScanMessage("Loading face recognition…");
       setMatchedUser(null);
       storedEmbeddingRef.current = null;
-      busyRef.current = false;
-      doneRef.current = false;
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
+      busyRef.current  = false;
+      doneRef.current  = false;
+      if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
     }
   }, [open]);
 
-  // Load models when the modal opens.
+  /* ── Load face-api models ────────────────────────────────────── */
   useEffect(() => {
     async function loadModels() {
       try {
@@ -94,30 +81,26 @@ export default function CameraModal({
           faceapi.nets.faceRecognitionNet.loadFromUri("https://justadudewhohacks.github.io/face-api.js/models"),
         ]);
         setModelsLoaded(true);
-      } catch (err) {
-        console.error("Failed to load face-api models:", err);
+      } catch {
         if (mode === "attendance") {
           setScanState("error");
           setScanMessage("Failed to load face recognition models.");
         }
       }
     }
-    if (open && !modelsLoaded) {
-      loadModels();
-    }
+    if (open && !modelsLoaded) loadModels();
   }, [open, modelsLoaded, mode]);
 
-  // Attendance mode: fetch the logged-in user's stored embedding.
+  /* ── Attendance: fetch stored embedding ──────────────────────── */
   useEffect(() => {
     if (!open || mode !== "attendance" || !modelsLoaded) return;
-
     let cancelled = false;
+
     async function loadEmbedding() {
       try {
-        const res = await fetch("/api/face/embedding");
+        const res  = await fetch("/api/face/embedding");
         const data = await res.json();
         if (cancelled) return;
-
         if (!data.registered || !data.embedding || data.embedding.length === 0) {
           setScanState("error");
           setScanMessage("No registered face found. Please register your face first.");
@@ -125,7 +108,7 @@ export default function CameraModal({
         }
         storedEmbeddingRef.current = data.embedding;
         setScanState("scanning");
-        setScanMessage("Position your face in the frame");
+        setScanMessage("Position your face inside the circle");
       } catch {
         if (cancelled) return;
         setScanState("error");
@@ -133,45 +116,40 @@ export default function CameraModal({
       }
     }
     loadEmbedding();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [open, mode, modelsLoaded]);
 
-  const markAttendance = useCallback(
-    async (userId?: string) => {
-      try {
-        const res = await fetch("/api/attendance/mark", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId }),
-        });
-        const data = await res.json();
-
-        if (data.success) {
-          setMatchedUser(data.user);
-          setScanState("success");
-          setScanMessage("Attendance marked successfully!");
-          if (onSuccess) onSuccess(data.user || data);
-        } else if (data.alreadyMarked) {
-          setScanState("already");
-          setScanMessage("You have already marked attendance today.");
-          if (onSuccess) onSuccess({ alreadyMarked: true });
-        } else {
-          setScanState("error");
-          setScanMessage(data.error || "Failed to mark attendance.");
-          if (onError) onError(data.error || "Failed to mark attendance");
-        }
-      } catch {
+  /* ── Mark attendance API call ────────────────────────────────── */
+  const markAttendance = useCallback(async () => {
+    try {
+      const res  = await fetch("/api/attendance/mark", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMatchedUser(data.user);
+        setScanState("success");
+        setScanMessage("Attendance marked successfully!");
+        if (onSuccess) onSuccess(data.user || data);
+      } else if (data.alreadyMarked) {
+        setScanState("already");
+        setScanMessage("You have already marked attendance today.");
+        if (onSuccess) onSuccess({ alreadyMarked: true });
+      } else {
         setScanState("error");
-        setScanMessage("Failed to mark attendance.");
-        if (onError) onError("Failed to mark attendance");
+        setScanMessage(data.error || "Failed to mark attendance.");
+        if (onError) onError(data.error || "Failed to mark attendance");
       }
-    },
-    [onSuccess, onError]
-  );
+    } catch {
+      setScanState("error");
+      setScanMessage("Failed to mark attendance.");
+      if (onError) onError("Failed to mark attendance");
+    }
+  }, [onSuccess, onError]);
 
-  // Attendance mode: continuous detection + matching loop.
+  /* ── Attendance scanning loop ────────────────────────────────── */
   useEffect(() => {
     if (!open || mode !== "attendance" || !modelsLoaded) return;
     if (scanState !== "scanning" && scanState !== "detected") return;
@@ -183,11 +161,12 @@ export default function CameraModal({
       if (busyRef.current || doneRef.current) return;
       if (!webcamRef.current) return;
       busyRef.current = true;
+
       try {
         const imageSrc = webcamRef.current.getScreenshot();
         if (!imageSrc) return;
 
-        const img = await faceapi.fetchImage(imageSrc);
+        const img       = await faceapi.fetchImage(imageSrc);
         const detection = await faceapi
           .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions())
           .withFaceLandmarks()
@@ -197,30 +176,30 @@ export default function CameraModal({
 
         if (!detection) {
           setScanState("scanning");
-          setScanMessage("No face detected. Position your face in the frame.");
+          setScanMessage("No face detected — position your face inside the circle.");
           return;
         }
 
-        const live = Array.from(detection.descriptor);
-        const stored = storedEmbeddingRef.current!;
+        const live     = Array.from(detection.descriptor);
+        const stored   = storedEmbeddingRef.current!;
         const distance = euclideanDistance(live, stored);
 
         if (distance <= MATCH_THRESHOLD) {
-          // Match! Stop scanning and mark attendance.
+          /* ✅ Match */
           doneRef.current = true;
-          if (intervalRef.current) {
-            clearInterval(intervalRef.current);
-            intervalRef.current = null;
-          }
+          if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
           setScanState("matched");
-          setScanMessage("Face matched! Marking attendance...");
+          setScanMessage("Face matched! Marking attendance…");
           await markAttendance();
         } else {
-          setScanState("detected");
-          setScanMessage("Face detected — verifying identity...");
+          /* ❌ Face detected but does not match */
+          doneRef.current = true;
+          if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
+          setScanState("no_match");
+          setScanMessage("Face does not match the registered face.");
         }
       } catch {
-        // Ignore per-frame errors and keep scanning.
+        /* ignore per-frame errors */
       } finally {
         busyRef.current = false;
       }
@@ -228,85 +207,18 @@ export default function CameraModal({
 
     intervalRef.current = setInterval(tick, 700);
     return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
+      if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
     };
   }, [open, mode, modelsLoaded, scanState, markAttendance]);
 
-  // Register mode: manual capture.
-  const capture = useCallback(async () => {
-    if (!webcamRef.current || capturing) return;
-    setCapturing(true);
-    setLoading(true);
-
-    try {
-      const imageSrc = webcamRef.current.getScreenshot();
-      if (!imageSrc) {
-        throw new Error("Failed to capture image");
-      }
-
-      const img = await faceapi.fetchImage(imageSrc);
-      const detection = await faceapi
-        .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions())
-        .withFaceLandmarks()
-        .withFaceDescriptor();
-
-      if (!detection) {
-        setResult({ success: false, message: "No face detected. Please try again." });
-        if (onError) onError("No face detected");
-        return;
-      }
-
-      const descriptor = Array.from(detection.descriptor);
-      const res = await fetch("/api/face/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ embedding: descriptor }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setResult({ success: true, message: "Face Registered Successfully!" });
-        if (onSuccess) onSuccess(data);
-      } else {
-        setResult({ success: false, message: data.error || "Registration failed" });
-        if (onError) onError(data.error || "Registration failed");
-      }
-    } catch (err: any) {
-      setResult({ success: false, message: err.message || "Something went wrong" });
-      if (onError) onError(err.message);
-    } finally {
-      setLoading(false);
-      setCapturing(false);
-    }
-  }, [capturing, onSuccess, onError]);
-
-  const resetRegister = () => {
-    setResult(null);
-    setCapturing(false);
-    setLoading(false);
-  };
-
+  /* ── Retry scan ──────────────────────────────────────────────── */
   const retryScan = () => {
     setMatchedUser(null);
-    doneRef.current = false;
-    busyRef.current = false;
+    doneRef.current  = false;
+    busyRef.current  = false;
     setScanState("scanning");
-    setScanMessage("Position your face in the frame");
+    setScanMessage("Position your face inside the circle");
   };
-
-  // Border color reflects the current scan state.
-  const borderColor =
-    scanState === "matched" || scanState === "success"
-      ? "border-emerald-500"
-      : scanState === "detected"
-      ? "border-amber-400"
-      : scanState === "error" || scanState === "already"
-      ? "border-red-500"
-      : "border-indigo-500/40";
-
-  const showScannerLine = scanState === "scanning" || scanState === "detected";
 
   return (
     <AnimatePresence>
@@ -315,18 +227,20 @@ export default function CameraModal({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md"
         >
           <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
+            initial={{ scale: 0.88, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.9, opacity: 0 }}
-            className="glass rounded-3xl p-6 max-w-md w-full glow"
+            exit={{ scale: 0.88, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 260, damping: 24 }}
+            className="glass rounded-3xl p-6 w-full max-w-sm glow relative"
           >
-            <div className="flex items-center justify-between mb-4">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-5">
               <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-                <Camera className="w-5 h-5 text-indigo-400" />
-                {mode === "attendance" ? "Face Recognition" : "Face Registration"}
+                <ScanFace className="w-5 h-5 text-indigo-400" />
+                Face Verification
               </h2>
               <button
                 onClick={onClose}
@@ -336,97 +250,178 @@ export default function CameraModal({
               </button>
             </div>
 
-            {result ? (
-              <div className="text-center py-8">
-                {result.success ? (
+            {/* ════════════════════════════════════════════════════
+                SUCCESS state
+            ════════════════════════════════════════════════════ */}
+            <AnimatePresence mode="wait">
+              {(scanState === "success" || scanState === "already") && (
+                <motion.div
+                  key="success"
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="text-center py-6"
+                >
                   <motion.div
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
                     transition={{ type: "spring", stiffness: 200 }}
                   >
                     <CheckCircle2 className="w-16 h-16 text-emerald-400 mx-auto mb-4" />
-                    <h3 className="text-xl font-bold text-emerald-400 mb-2">
-                      {result.message}
-                    </h3>
-                    {result.data && (
-                      <div className="text-gray-300 space-y-1">
-                        <p className="text-lg font-semibold text-white">
-                          Welcome, {result.data.name}
-                        </p>
-                        <p className="text-sm">Roll No: {result.data.rollNumber}</p>
-                        <p className="text-xs text-gray-500 mt-2">
-                          Attendance Successfully Marked
-                        </p>
-                      </div>
-                    )}
-                    <GradientButton onClick={onClose} className="mt-6">
-                      Close
-                    </GradientButton>
                   </motion.div>
-                ) : (
-                  <div>
-                    <motion.div
-                      initial={{ scale: 0 }}
-                      animate={{ scale: 1 }}
-                      transition={{ type: "spring", stiffness: 200 }}
-                    >
-                      <AlertCircle className="w-16 h-16 text-red-400 mx-auto mb-4" />
-                      <h3 className="text-xl font-bold text-red-400 mb-2">
-                        {result.message}
-                      </h3>
-                    </motion.div>
-                    <div className="flex gap-3 justify-center mt-6">
-                      <GradientButton onClick={resetRegister}>Retry</GradientButton>
-                      <button
-                        onClick={onClose}
-                        className="px-6 py-3 rounded-xl border border-white/10 text-gray-300 hover:text-white hover:bg-white/5 transition-all"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div>
-                <div className="relative rounded-2xl overflow-hidden bg-black/50 mb-4 aspect-[4/3]">
-                  {modelsLoaded ? (
-                    <Webcam
-                      ref={webcamRef}
-                      screenshotFormat="image/jpeg"
-                      className="w-full h-full object-cover"
-                      mirrored
-                    />
-                  ) : (
-                    <div className="flex items-center justify-center h-full">
-                      <div className="text-center">
-                        <Loader2 className="w-8 h-8 animate-spin text-indigo-400 mx-auto mb-2" />
-                        <p className="text-sm text-gray-400">Loading camera...</p>
-                      </div>
+                  <h3 className="text-xl font-bold text-emerald-400 mb-2">
+                    {scanState === "already" ? "Already Marked" : "Attendance Marked! ✅"}
+                  </h3>
+                  {matchedUser && (
+                    <div className="mb-4 text-sm text-gray-300 space-y-0.5">
+                      <p className="font-semibold text-white text-base">{matchedUser.name}</p>
+                      {matchedUser.rollNumber && <p>Roll No: {matchedUser.rollNumber}</p>}
                     </div>
                   )}
-                  <div className="absolute inset-0 border-2 border-indigo-500/30 rounded-2xl pointer-events-none" />
-                  <motion.div
-                    className="absolute left-4 right-4 h-0.5 bg-gradient-to-r from-transparent via-indigo-500 to-transparent"
-                    animate={{ top: ["10%", "90%"] }}
-                    transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                  />
-                </div>
+                  <p className="text-gray-400 text-sm mb-6">{scanMessage}</p>
+                  <GradientButton onClick={onClose} className="w-full">
+                    Done
+                  </GradientButton>
+                </motion.div>
+              )}
 
-                <p className="text-sm text-gray-400 text-center mb-4">
-                  Position your face in the center and click capture
-                </p>
-
-                <GradientButton
-                  onClick={capture}
-                  loading={loading}
-                  disabled={!modelsLoaded || capturing}
-                  className="w-full"
+              {/* ════════════════════════════════════════════════════
+                  NO_MATCH modal
+              ════════════════════════════════════════════════════ */}
+              {scanState === "no_match" && (
+                <motion.div
+                  key="no_match"
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="text-center py-6"
                 >
-                  {loading ? "Processing..." : "Capture Face"}
-                </GradientButton>
-              </div>
-            )}
+                  <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ type: "spring", stiffness: 200 }}
+                    className="w-20 h-20 rounded-full bg-red-500/15 flex items-center justify-center mx-auto mb-4"
+                  >
+                    <XCircle className="w-10 h-10 text-red-400" />
+                  </motion.div>
+                  <h3 className="text-xl font-bold text-red-400 mb-2">❌ Face Not Matched</h3>
+                  <p className="text-gray-400 text-sm mb-6 leading-relaxed max-w-xs mx-auto">
+                    The detected face does not match your registered face.
+                    Please ensure proper lighting and that your face is clearly visible, then try again.
+                  </p>
+                  <div className="flex gap-3">
+                    <GradientButton onClick={retryScan} className="flex-1">
+                      Try Again
+                    </GradientButton>
+                    <button
+                      onClick={onClose}
+                      className="px-5 py-3 rounded-xl border border-white/10 text-gray-300 hover:text-white hover:bg-white/5 transition-all text-sm"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* ════════════════════════════════════════════════════
+                  ERROR state
+              ════════════════════════════════════════════════════ */}
+              {scanState === "error" && (
+                <motion.div
+                  key="error"
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="text-center py-6"
+                >
+                  <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ type: "spring", stiffness: 200 }}
+                  >
+                    <AlertCircle className="w-16 h-16 text-amber-400 mx-auto mb-4" />
+                  </motion.div>
+                  <h3 className="text-xl font-bold text-amber-400 mb-2">Something went wrong</h3>
+                  <p className="text-gray-400 text-sm mb-6">{scanMessage}</p>
+                  <div className="flex gap-3">
+                    <GradientButton onClick={retryScan} className="flex-1">
+                      Retry
+                    </GradientButton>
+                    <button
+                      onClick={onClose}
+                      className="px-5 py-3 rounded-xl border border-white/10 text-gray-300 hover:text-white hover:bg-white/5 transition-all text-sm"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* ════════════════════════════════════════════════════
+                  SCANNING / LOADING — circular scanner view
+              ════════════════════════════════════════════════════ */}
+              {(scanState === "loading" || scanState === "scanning" || scanState === "detected" || scanState === "matched") && (
+                <motion.div
+                  key="scanner"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="flex flex-col items-center gap-5"
+                >
+                  {scanState === "loading" ? (
+                    /* Loading spinner before models/embedding ready */
+                    <div
+                      className="rounded-full bg-black/70 border-[10px] border-indigo-500/30 flex items-center justify-center"
+                      style={{ width: 296, height: 296 }}
+                    >
+                      <div className="text-center">
+                        <Loader2 className="w-10 h-10 animate-spin text-indigo-400 mx-auto mb-2" />
+                        <p className="text-xs text-gray-400 px-4 text-center">{scanMessage}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Circular scanner with live webcam */
+                    <div style={{ marginBottom: 40 }}>
+                      <CircularScanner faceDetected={faceReady} size={296}>
+                        <Webcam
+                          ref={webcamRef}
+                          screenshotFormat="image/jpeg"
+                          className="w-full h-full object-cover"
+                          mirrored
+                          style={{ borderRadius: "50%" }}
+                        />
+                      </CircularScanner>
+                    </div>
+                  )}
+
+                  {/* Status message */}
+                  <div className="text-center px-2">
+                    <p className={`text-sm font-medium ${
+                      faceReady || (scanState as string) === "matched"
+                        ? "text-emerald-400"
+                        : "text-gray-300"
+                    }`}>
+                      {scanMessage}
+                    </p>
+                  </div>
+
+                  {/* Matching / processing indicator */}
+                  {scanState === "matched" && (
+                    <div className="flex items-center gap-2 text-sm text-indigo-300">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Marking attendance…
+                    </div>
+                  )}
+
+                  {/* Tip */}
+                  {(scanState === "scanning" || scanState === "detected") && (
+                    <p className="text-xs text-gray-500 text-center max-w-[220px]">
+                      Hold your face steady inside the circle. Capture is automatic.
+                    </p>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         </motion.div>
       )}
