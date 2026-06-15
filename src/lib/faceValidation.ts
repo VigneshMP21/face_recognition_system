@@ -144,3 +144,25 @@ export function validateFaceQuality(
 
   return { valid: true, hint: "" };
 }
+
+function getDistance(pt1: faceapi.Point, pt2: faceapi.Point): number {
+  return Math.hypot(pt1.x - pt2.x, pt1.y - pt2.y);
+}
+
+export function computeEAR(eyePoints: faceapi.Point[]): number {
+  const vertical1 = getDistance(eyePoints[1], eyePoints[5]);
+  const vertical2 = getDistance(eyePoints[2], eyePoints[4]);
+  const horizontal = getDistance(eyePoints[0], eyePoints[3]);
+  return (vertical1 + vertical2) / (2.0 * horizontal);
+}
+
+export function checkEyesOpen(landmarks: faceapi.FaceLandmarks68): { open: boolean; ear: number } {
+  const pts = landmarks.positions;
+  const leftEye = pts.slice(36, 42);
+  const rightEye = pts.slice(42, 48);
+  const leftEAR = computeEAR(leftEye);
+  const rightEAR = computeEAR(rightEye);
+  const avgEAR = (leftEAR + rightEAR) / 2;
+  return { open: avgEAR >= 0.20, ear: avgEAR };
+}
+

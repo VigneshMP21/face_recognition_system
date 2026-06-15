@@ -7,18 +7,25 @@ import { X, Loader2, CheckCircle2, AlertCircle, ScanFace, XCircle } from "lucide
 import GradientButton from "./ui/GradientButton";
 import CircularScanner from "./CircularScanner";
 import * as faceapi from "face-api.js";
-import { validateFaceQuality } from "@/lib/faceValidation";
+import { validateFaceQuality, estimateHeadPose, checkEyesOpen } from "@/lib/faceValidation";
 
 /* ─────────────────────────────────────────────────────────────────
    face-api descriptors: euclidean distance — lower = more similar.
    ~0.5 is a well-tuned threshold for TinyFaceDetector.
 ──────────────────────────────────────────────────────────────────── */
-const MATCH_THRESHOLD = 0.5;
+const MATCH_THRESHOLD = 0.48;
 
 function euclideanDistance(a: number[], b: number[]): number {
   let sum = 0;
   for (let i = 0; i < a.length; i++) { const d = a[i] - b[i]; sum += d * d; }
   return Math.sqrt(sum);
+}
+
+function averageEmbeddings(emb: number[][]): number[] {
+  const avg = new Array(emb[0].length).fill(0);
+  for (const e of emb)
+    for (let i = 0; i < e.length; i++) avg[i] += e[i] / emb.length;
+  return avg;
 }
 
 type ScanState =
@@ -58,7 +65,42 @@ export default function CameraModal({
   const [facePresent, setFacePresent]           = useState(false);
   const [faceQualityValid, setFaceQualityValid] = useState(false);
 
+  const [timeLeft, setTimeLeft]                   = useState(60);
+  const [stabilityProgress, setStabilityProgress] = useState(0);
+  const [failureTitle, setFailureTitle]           = useState("");
+  const [failureMessage, setFailureMessage]       = useState("");
 
+  const stabilityDescriptorsRef = useRef<number[][]>([]);
+  const scanStartTimeRef        = useRef<number | null>(null);
+
+  /* ── Scan state & start time initializer ─────────────────── */
+  useEffect(() => {
+    if (scanState === "scanning") {
+      scanStartTimeRef.current = Date.now();
+      stabilityDescriptorsRef.current = [];
+      setStabilityProgress(0);
+      setTimeLeft(60);
+      setFailureTitle("");
+      setFailureMessage("");
+    }
+  }, [scanState]);
+
+  /* ── Scanner countdown timer ────────────────────────────────── */
+  useEffect(() => {
+    if (scanState !== "scanning") {
+      return;
+    }
+    const interval = setInterval(() => {
+      if (!scanStartTimeRef.current) return;
+      const elapsed = Math.floor((Date.now() - scanStartTimeRef.current) / 1000);
+      const remaining = Math.max(0, 60 - elapsed);
+      setTimeLeft(remaining);
+      if (remaining === 0) {
+        clearInterval(interval);
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [scanState]);
 
   /* ── Reset on close ──────────────────────────────────────────── */
   useEffect(() => {
@@ -71,9 +113,16 @@ export default function CameraModal({
       doneRef.current  = false;
       setFacePresent(false);
       setFaceQualityValid(false);
+      setTimeLeft(60);
+      setStabilityProgress(0);
+      stabilityDescriptorsRef.current = [];
+      scanStartTimeRef.current = null;
+      setFailureTitle("");
+      setFailureMessage("");
       if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
     }
   }, [open]);
+
 
   /* ── Load face-api models ────────────────────────────────────── */
   useEffect(() => {
@@ -154,12 +203,15 @@ export default function CameraModal({
   }, [onSuccess, onError]);
 
   /* ── Attendance scanning loop ────────────────────────────────── */
+  const hadFaceAttemptsRef = useRef(false);
+
   useEffect(() => {
     if (!open || mode !== "attendance" || !modelsLoaded) return;
-    if (scanState !== "scanning" && scanState !== "detected") return;
+    if (scanState !== "scanning") return;
     if (!storedEmbeddingRef.current) return;
 
     doneRef.current = false;
+    hadFaceAttemptsRef.current = false;
 
     const tick = async () => {
       if (busyRef.current || doneRef.current) return;
@@ -167,6 +219,23 @@ export default function CameraModal({
       busyRef.current = true;
 
       try {
+        // Check timeout
+        if (scanStartTimeRef.current) {
+          const elapsed = (Date.now() - scanStartTimeRef.current) / 1000;
+          if (elapsed >= 60) {
+            doneRef.current = true;
+            if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
+            setFailureTitle("Face Not Recognized");
+            if (hadFaceAttemptsRef.current) {
+              setFailureMessage("The detected face does not belong to the registered account. Please try again.");
+            } else {
+              setFailureMessage("No valid registered face could be verified within the allotted time. Please try again.");
+            }
+            setScanState("no_match");
+            return;
+          }
+        }
+
         const imageSrc = webcamRef.current.getScreenshot();
         if (!imageSrc) return;
 
@@ -183,26 +252,68 @@ export default function CameraModal({
           setFaceQualityValid(false);
           setScanState("scanning");
           setScanMessage("No face detected — position your face inside the circle.");
+          // Reset stability on face loss
+          stabilityDescriptorsRef.current = [];
+          setStabilityProgress(0);
           return;
         }
 
         setFacePresent(true);
 
-        // Run quality check on the frame
+        // 1 ─ Run quality check on the frame
         const quality = validateFaceQuality(detection, img.width, img.height);
         if (!quality.valid) {
           setFaceQualityValid(false);
           setScanState("scanning");
           setScanMessage(quality.hint);
+          stabilityDescriptorsRef.current = [];
+          setStabilityProgress(0);
           return;
         }
 
+        // 2 ─ Eyes-open validation
+        const eyeCheck = checkEyesOpen(detection.landmarks);
+        if (!eyeCheck.open) {
+          setFaceQualityValid(false);
+          setScanState("scanning");
+          setScanMessage("Please keep your eyes open and look directly at the camera.");
+          stabilityDescriptorsRef.current = [];
+          setStabilityProgress(0);
+          return;
+        }
+
+        // 3 ─ Stable head position / pose verification (must look straight)
+        const pose = estimateHeadPose(detection.landmarks);
+        const isFront = Math.abs(pose.yaw) < 0.15 && pose.pitch > 0.35 && pose.pitch < 0.58;
+        if (!isFront) {
+          setFaceQualityValid(false);
+          setScanState("scanning");
+          setScanMessage("Please look directly at the camera.");
+          stabilityDescriptorsRef.current = [];
+          setStabilityProgress(0);
+          return;
+        }
+
+        // All checks pass: accumulate stability
         setFaceQualityValid(true);
         setScanMessage("Verifying face... Hold steady");
 
-        const live     = Array.from(detection.descriptor);
+        stabilityDescriptorsRef.current.push(Array.from(detection.descriptor));
+        const currentCount = stabilityDescriptorsRef.current.length;
+        setStabilityProgress(currentCount);
+
+        if (currentCount < 3) {
+          return;
+        }
+
+        // Average collected descriptors
+        const avgEmbedding = averageEmbeddings(stabilityDescriptorsRef.current);
         const stored   = storedEmbeddingRef.current!;
-        const distance = euclideanDistance(live, stored);
+        const distance = euclideanDistance(avgEmbedding, stored);
+
+        // Reset stability counter after check
+        stabilityDescriptorsRef.current = [];
+        setStabilityProgress(0);
 
         if (distance <= MATCH_THRESHOLD) {
           /* ✅ Match */
@@ -213,10 +324,9 @@ export default function CameraModal({
           await markAttendance();
         } else {
           /* ❌ Face detected but does not match */
-          doneRef.current = true;
-          if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
-          setScanState("no_match");
-          setScanMessage("Face does not match the registered face.");
+          hadFaceAttemptsRef.current = true;
+          setScanMessage("Face not recognized — please look directly at the camera.");
+          setFaceQualityValid(false);
         }
       } catch {
         /* ignore per-frame errors */
@@ -326,14 +436,13 @@ export default function CameraModal({
                   >
                     <XCircle className="w-10 h-10 text-red-400" />
                   </motion.div>
-                  <h3 className="text-xl font-bold text-red-400 mb-2">❌ Face Not Matched</h3>
+                  <h3 className="text-xl font-bold text-red-400 mb-2">❌ {failureTitle || "Face Not Recognized"}</h3>
                   <p className="text-gray-400 text-sm mb-6 leading-relaxed max-w-xs mx-auto">
-                    The detected face does not match your registered face.
-                    Please ensure proper lighting and that your face is clearly visible, then try again.
+                    {failureMessage || "The detected face does not match the registered face. Please try again."}
                   </p>
                   <div className="flex gap-3">
                     <GradientButton onClick={retryScan} className="flex-1">
-                      Try Again
+                      Retry
                     </GradientButton>
                     <button
                       onClick={onClose}
@@ -430,6 +539,37 @@ export default function CameraModal({
                       {scanMessage}
                     </p>
                   </div>
+
+                  {/* Stability progress dots */}
+                  {faceQualityValid && stabilityProgress > 0 && stabilityProgress < 3 && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="flex items-center gap-2 mt-1"
+                    >
+                      {Array.from({ length: 3 }).map((_, i) => (
+                        <motion.div
+                          key={i}
+                          initial={{ scale: 0.6 }}
+                          animate={{
+                            scale: i < stabilityProgress ? 1.15 : 0.8,
+                            backgroundColor: i < stabilityProgress ? "rgb(52,211,153)" : "rgba(255,255,255,0.12)",
+                          }}
+                          transition={{ duration: 0.25 }}
+                          className="w-2 h-2 rounded-full"
+                        />
+                      ))}
+                      <span className="text-[11px] text-emerald-300 ml-1 font-medium">Analyzing face... Hold steady</span>
+                    </motion.div>
+                  )}
+
+                  {/* Countdown Timer Badge */}
+                  {scanState === "scanning" && timeLeft !== null && (
+                    <div className="text-xs bg-white/5 border border-white/10 px-2.5 py-1 rounded-full text-gray-400 flex items-center gap-1.5 mt-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                      Time Remaining: <span className="font-semibold text-white">{timeLeft}s</span>
+                    </div>
+                  )}
 
                   {/* Matching / processing indicator */}
                   {scanState === "matched" && (
