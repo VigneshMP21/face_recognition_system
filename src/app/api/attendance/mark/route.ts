@@ -47,10 +47,23 @@ export async function POST(req: NextRequest) {
     });
 
     if (existing) {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          name: true,
+          rollNumber: true,
+          email: true,
+          mobile: true,
+          role: true,
+        },
+      });
       return NextResponse.json({
         success: false,
         error: "Attendance Already Marked Today",
         alreadyMarked: true,
+        attendance: existing,
+        user,
       });
     }
 

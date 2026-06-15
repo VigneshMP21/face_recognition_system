@@ -3,11 +3,12 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Webcam from "react-webcam";
-import { X, Loader2, CheckCircle2, AlertCircle, ScanFace, XCircle } from "lucide-react";
+import { X, Loader2, CheckCircle2, AlertCircle, ScanFace, XCircle, Clock, User, Hash, CalendarDays } from "lucide-react";
 import GradientButton from "./ui/GradientButton";
 import CircularScanner from "./CircularScanner";
 import * as faceapi from "face-api.js";
 import { validateFaceQuality, estimateHeadPose, checkEyesOpen } from "@/lib/faceValidation";
+import { formatTime } from "@/lib/utils";
 
 /* ─────────────────────────────────────────────────────────────────
    face-api descriptors: euclidean distance — lower = more similar.
@@ -57,11 +58,13 @@ export default function CameraModal({
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const [scanState, setScanState]       = useState<ScanState>("loading");
   const [scanMessage, setScanMessage]   = useState("Loading face recognition…");
-  const [matchedUser, setMatchedUser]   = useState<any>(null);
-  const storedEmbeddingRef = useRef<number[] | null>(null);
-  const busyRef            = useRef(false);
-  const doneRef            = useRef(false);
-  const intervalRef        = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [matchedUser, setMatchedUser]     = useState<any>(null);
+  const [alreadyAttendance, setAlreadyAttendance] = useState<any>(null);
+  /* storedEmbeddingsRef holds ALL registered embeddings from the DB */
+  const storedEmbeddingsRef = useRef<{ userId: string; userName: string; rollNumber: string; embedding: number[] }[]>([]);
+  const busyRef             = useRef(false);
+  const doneRef             = useRef(false);
+  const intervalRef         = useRef<ReturnType<typeof setInterval> | null>(null);
   const [facePresent, setFacePresent]           = useState(false);
   const [faceQualityValid, setFaceQualityValid] = useState(false);
 
@@ -108,7 +111,8 @@ export default function CameraModal({
       setScanState("loading");
       setScanMessage("Loading face recognition…");
       setMatchedUser(null);
-      storedEmbeddingRef.current = null;
+      setAlreadyAttendance(null);
+      storedEmbeddingsRef.current = [];
       busyRef.current  = false;
       doneRef.current  = false;
       setFacePresent(false);
@@ -144,41 +148,44 @@ export default function CameraModal({
     if (open && !modelsLoaded) loadModels();
   }, [open, modelsLoaded, mode]);
 
-  /* ── Attendance: fetch stored embedding ──────────────────────── */
+  /* ── Attendance: fetch ALL registered embeddings ─────────────── */
   useEffect(() => {
     if (!open || mode !== "attendance" || !modelsLoaded) return;
     let cancelled = false;
 
-    async function loadEmbedding() {
+    async function loadEmbeddings() {
       try {
-        const res  = await fetch("/api/face/embedding");
+        const res  = await fetch("/api/face/embeddings");
         const data = await res.json();
         if (cancelled) return;
-        if (!data.registered || !data.embedding || data.embedding.length === 0) {
+        const valid = (data.embeddings ?? []).filter(
+          (e: any) => Array.isArray(e.embedding) && e.embedding.length > 0
+        );
+        if (valid.length === 0) {
           setScanState("error");
           setScanMessage("No registered face found. Please register your face first.");
           return;
         }
-        storedEmbeddingRef.current = data.embedding;
+        storedEmbeddingsRef.current = valid;
         setScanState("scanning");
         setScanMessage("Position your face inside the circle");
       } catch {
         if (cancelled) return;
         setScanState("error");
-        setScanMessage("Could not load your face data. Try again.");
+        setScanMessage("Could not load face data. Try again.");
       }
     }
-    loadEmbedding();
+    loadEmbeddings();
     return () => { cancelled = true; };
   }, [open, mode, modelsLoaded]);
 
   /* ── Mark attendance API call ────────────────────────────────── */
-  const markAttendance = useCallback(async () => {
+  const markAttendance = useCallback(async (userId: string) => {
     try {
       const res  = await fetch("/api/attendance/mark", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({}),
+        body:    JSON.stringify({ userId }),
       });
       const data = await res.json();
       if (data.success) {
@@ -187,8 +194,9 @@ export default function CameraModal({
         setScanMessage("Attendance marked successfully!");
         if (onSuccess) onSuccess(data.user || data);
       } else if (data.alreadyMarked) {
+        setMatchedUser(data.user);
+        setAlreadyAttendance(data.attendance);
         setScanState("already");
-        setScanMessage("You have already marked attendance today.");
         if (onSuccess) onSuccess({ alreadyMarked: true });
       } else {
         setScanState("error");
@@ -208,7 +216,7 @@ export default function CameraModal({
   useEffect(() => {
     if (!open || mode !== "attendance" || !modelsLoaded) return;
     if (scanState !== "scanning") return;
-    if (!storedEmbeddingRef.current) return;
+    if (storedEmbeddingsRef.current.length === 0) return;
 
     doneRef.current = false;
     hadFaceAttemptsRef.current = false;
@@ -306,24 +314,34 @@ export default function CameraModal({
           return;
         }
 
-        // Average collected descriptors
+        // Average collected descriptors and search all registered users
         const avgEmbedding = averageEmbeddings(stabilityDescriptorsRef.current);
-        const stored   = storedEmbeddingRef.current!;
-        const distance = euclideanDistance(avgEmbedding, stored);
 
         // Reset stability counter after check
         stabilityDescriptorsRef.current = [];
         setStabilityProgress(0);
 
-        if (distance <= MATCH_THRESHOLD) {
+        // Find best match across all registered embeddings
+        let bestDistance = Infinity;
+        let bestUserId   = "";
+        for (const record of storedEmbeddingsRef.current) {
+          if (record.embedding.length === 0) continue;
+          const dist = euclideanDistance(avgEmbedding, record.embedding);
+          if (dist < bestDistance) {
+            bestDistance = dist;
+            bestUserId   = record.userId;
+          }
+        }
+
+        if (bestDistance <= MATCH_THRESHOLD && bestUserId) {
           /* ✅ Match */
           doneRef.current = true;
           if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
           setScanState("matched");
           setScanMessage("Face matched! Marking attendance…");
-          await markAttendance();
+          await markAttendance(bestUserId);
         } else {
-          /* ❌ Face detected but does not match */
+          /* ❌ Face detected but does not match any registered user */
           hadFaceAttemptsRef.current = true;
           setScanMessage("Face not recognized — please look directly at the camera.");
           setFaceQualityValid(false);
@@ -386,7 +404,7 @@ export default function CameraModal({
                 SUCCESS state
             ════════════════════════════════════════════════════ */}
             <AnimatePresence mode="wait">
-              {(scanState === "success" || scanState === "already") && (
+              {scanState === "success" && (
                 <motion.div
                   key="success"
                   initial={{ opacity: 0, scale: 0.9 }}
@@ -401,9 +419,7 @@ export default function CameraModal({
                   >
                     <CheckCircle2 className="w-16 h-16 text-emerald-400 mx-auto mb-4" />
                   </motion.div>
-                  <h3 className="text-xl font-bold text-emerald-400 mb-2">
-                    {scanState === "already" ? "Already Marked" : "Attendance Marked! ✅"}
-                  </h3>
+                  <h3 className="text-xl font-bold text-emerald-400 mb-2">Attendance Marked! ✅</h3>
                   {matchedUser && (
                     <div className="mb-4 text-sm text-gray-300 space-y-0.5">
                       <p className="font-semibold text-white text-base">{matchedUser.name}</p>
@@ -411,9 +427,82 @@ export default function CameraModal({
                     </div>
                   )}
                   <p className="text-gray-400 text-sm mb-6">{scanMessage}</p>
-                  <GradientButton onClick={onClose} className="w-full">
-                    Done
-                  </GradientButton>
+                  <GradientButton onClick={onClose} className="w-full">Done</GradientButton>
+                </motion.div>
+              )}
+
+              {/* ════════════════════════════════════════════════════
+                  ALREADY MARKED — premium info panel
+              ════════════════════════════════════════════════════ */}
+              {scanState === "already" && (
+                <motion.div
+                  key="already"
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="text-center py-4"
+                >
+                  <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ type: "spring", stiffness: 200 }}
+                    className="w-20 h-20 rounded-full bg-emerald-500/15 flex items-center justify-center mx-auto mb-4"
+                  >
+                    <CheckCircle2 className="w-10 h-10 text-emerald-400" />
+                  </motion.div>
+                  <h3 className="text-lg font-bold text-emerald-400 mb-1">✅ Attendance Already Recorded</h3>
+                  <p className="text-gray-400 text-sm mb-5 max-w-xs mx-auto">
+                    Your attendance has already been successfully recorded for today.
+                  </p>
+                  {(matchedUser || alreadyAttendance) && (
+                    <div className="mb-5 rounded-2xl bg-white/5 border border-white/10 p-4 text-left space-y-3">
+                      {matchedUser?.name && (
+                        <div className="flex items-center gap-3">
+                          <div className="w-7 h-7 rounded-lg bg-indigo-500/20 flex items-center justify-center flex-shrink-0">
+                            <User className="w-3.5 h-3.5 text-indigo-400" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-gray-500 uppercase tracking-wide">Student Name</p>
+                            <p className="text-sm font-semibold text-white">{matchedUser.name}</p>
+                          </div>
+                        </div>
+                      )}
+                      {matchedUser?.rollNumber && (
+                        <div className="flex items-center gap-3">
+                          <div className="w-7 h-7 rounded-lg bg-purple-500/20 flex items-center justify-center flex-shrink-0">
+                            <Hash className="w-3.5 h-3.5 text-purple-400" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-gray-500 uppercase tracking-wide">Roll Number</p>
+                            <p className="text-sm font-semibold text-white">{matchedUser.rollNumber}</p>
+                          </div>
+                        </div>
+                      )}
+                      {alreadyAttendance?.attendanceDate && (
+                        <div className="flex items-center gap-3">
+                          <div className="w-7 h-7 rounded-lg bg-cyan-500/20 flex items-center justify-center flex-shrink-0">
+                            <CalendarDays className="w-3.5 h-3.5 text-cyan-400" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-gray-500 uppercase tracking-wide">Date</p>
+                            <p className="text-sm font-semibold text-white">{alreadyAttendance.attendanceDate}</p>
+                          </div>
+                        </div>
+                      )}
+                      {alreadyAttendance?.attendanceTime && (
+                        <div className="flex items-center gap-3">
+                          <div className="w-7 h-7 rounded-lg bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
+                            <Clock className="w-3.5 h-3.5 text-emerald-400" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-gray-500 uppercase tracking-wide">Recorded Time</p>
+                            <p className="text-sm font-semibold text-white">{formatTime(alreadyAttendance.attendanceTime)}</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <GradientButton onClick={onClose} className="w-full">OK</GradientButton>
                 </motion.div>
               )}
 
