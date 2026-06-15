@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Webcam from "react-webcam";
-import { X, Camera, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { X, Camera, Loader2, CheckCircle2, AlertCircle, ScanFace } from "lucide-react";
 import GradientButton from "./ui/GradientButton";
 import * as faceapi from "face-api.js";
 
@@ -15,6 +15,28 @@ interface CameraModalProps {
   onError?: (error: string) => void;
 }
 
+// face-api descriptors are matched with euclidean distance.
+// Lower distance = more similar. ~0.5 is a common threshold.
+const MATCH_THRESHOLD = 0.5;
+
+function euclideanDistance(a: number[], b: number[]): number {
+  let sum = 0;
+  for (let i = 0; i < a.length; i++) {
+    const d = a[i] - b[i];
+    sum += d * d;
+  }
+  return Math.sqrt(sum);
+}
+
+type ScanState =
+  | "loading" // loading models / embedding
+  | "scanning" // looking for a face
+  | "detected" // face found, not yet matched
+  | "matched" // face matched -> marking
+  | "success" // attendance marked
+  | "already" // already marked today
+  | "error"; // some failure
+
 export default function CameraModal({
   open,
   onClose,
@@ -23,8 +45,10 @@ export default function CameraModal({
   onError,
 }: CameraModalProps) {
   const webcamRef = useRef<Webcam>(null);
-  const [loading, setLoading] = useState(false);
   const [modelsLoaded, setModelsLoaded] = useState(false);
+
+  // ---- register mode state (manual capture) ----
+  const [loading, setLoading] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [result, setResult] = useState<{
     success?: boolean;
@@ -32,13 +56,35 @@ export default function CameraModal({
     data?: any;
   } | null>(null);
 
+  // ---- attendance mode state (automatic scanning) ----
+  const [scanState, setScanState] = useState<ScanState>("loading");
+  const [scanMessage, setScanMessage] = useState("Loading face recognition...");
+  const [matchedUser, setMatchedUser] = useState<any>(null);
+  const storedEmbeddingRef = useRef<number[] | null>(null);
+  const busyRef = useRef(false); // prevents concurrent detections
+  const doneRef = useRef(false); // stops loop after success/already
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Reset everything when the modal closes.
   useEffect(() => {
     if (!open) {
       setResult(null);
       setCapturing(false);
+      setLoading(false);
+      setScanState("loading");
+      setScanMessage("Loading face recognition...");
+      setMatchedUser(null);
+      storedEmbeddingRef.current = null;
+      busyRef.current = false;
+      doneRef.current = false;
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
     }
   }, [open]);
 
+  // Load models when the modal opens.
   useEffect(() => {
     async function loadModels() {
       try {
@@ -50,13 +96,146 @@ export default function CameraModal({
         setModelsLoaded(true);
       } catch (err) {
         console.error("Failed to load face-api models:", err);
+        if (mode === "attendance") {
+          setScanState("error");
+          setScanMessage("Failed to load face recognition models.");
+        }
       }
     }
     if (open && !modelsLoaded) {
       loadModels();
     }
-  }, [open, modelsLoaded]);
+  }, [open, modelsLoaded, mode]);
 
+  // Attendance mode: fetch the logged-in user's stored embedding.
+  useEffect(() => {
+    if (!open || mode !== "attendance" || !modelsLoaded) return;
+
+    let cancelled = false;
+    async function loadEmbedding() {
+      try {
+        const res = await fetch("/api/face/embedding");
+        const data = await res.json();
+        if (cancelled) return;
+
+        if (!data.registered || !data.embedding || data.embedding.length === 0) {
+          setScanState("error");
+          setScanMessage("No registered face found. Please register your face first.");
+          return;
+        }
+        storedEmbeddingRef.current = data.embedding;
+        setScanState("scanning");
+        setScanMessage("Position your face in the frame");
+      } catch {
+        if (cancelled) return;
+        setScanState("error");
+        setScanMessage("Could not load your face data. Try again.");
+      }
+    }
+    loadEmbedding();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, mode, modelsLoaded]);
+
+  const markAttendance = useCallback(
+    async (userId?: string) => {
+      try {
+        const res = await fetch("/api/attendance/mark", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId }),
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          setMatchedUser(data.user);
+          setScanState("success");
+          setScanMessage("Attendance marked successfully!");
+          if (onSuccess) onSuccess(data.user || data);
+        } else if (data.alreadyMarked) {
+          setScanState("already");
+          setScanMessage("You have already marked attendance today.");
+          if (onSuccess) onSuccess({ alreadyMarked: true });
+        } else {
+          setScanState("error");
+          setScanMessage(data.error || "Failed to mark attendance.");
+          if (onError) onError(data.error || "Failed to mark attendance");
+        }
+      } catch {
+        setScanState("error");
+        setScanMessage("Failed to mark attendance.");
+        if (onError) onError("Failed to mark attendance");
+      }
+    },
+    [onSuccess, onError]
+  );
+
+  // Attendance mode: continuous detection + matching loop.
+  useEffect(() => {
+    if (!open || mode !== "attendance" || !modelsLoaded) return;
+    if (scanState !== "scanning" && scanState !== "detected") return;
+    if (!storedEmbeddingRef.current) return;
+
+    doneRef.current = false;
+
+    const tick = async () => {
+      if (busyRef.current || doneRef.current) return;
+      if (!webcamRef.current) return;
+      busyRef.current = true;
+      try {
+        const imageSrc = webcamRef.current.getScreenshot();
+        if (!imageSrc) return;
+
+        const img = await faceapi.fetchImage(imageSrc);
+        const detection = await faceapi
+          .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions())
+          .withFaceLandmarks()
+          .withFaceDescriptor();
+
+        if (doneRef.current) return;
+
+        if (!detection) {
+          setScanState("scanning");
+          setScanMessage("No face detected. Position your face in the frame.");
+          return;
+        }
+
+        const live = Array.from(detection.descriptor);
+        const stored = storedEmbeddingRef.current!;
+        const distance = euclideanDistance(live, stored);
+
+        if (distance <= MATCH_THRESHOLD) {
+          // Match! Stop scanning and mark attendance.
+          doneRef.current = true;
+          if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
+          }
+          setScanState("matched");
+          setScanMessage("Face matched! Marking attendance...");
+          await markAttendance();
+        } else {
+          setScanState("detected");
+          setScanMessage("Face detected — verifying identity...");
+        }
+      } catch {
+        // Ignore per-frame errors and keep scanning.
+      } finally {
+        busyRef.current = false;
+      }
+    };
+
+    intervalRef.current = setInterval(tick, 700);
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [open, mode, modelsLoaded, scanState, markAttendance]);
+
+  // Register mode: manual capture.
   const capture = useCallback(async () => {
     if (!webcamRef.current || capturing) return;
     setCapturing(true);
@@ -68,47 +247,31 @@ export default function CameraModal({
         throw new Error("Failed to capture image");
       }
 
-      if (mode === "attendance") {
-        const res = await fetch("/api/face/recognize", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ image: imageSrc }),
-        });
-        const data = await res.json();
-        if (data.success) {
-          setResult({ success: true, message: "Face Recognized", data: data.user });
-          if (onSuccess) onSuccess(data.user);
-        } else {
-          setResult({ success: false, message: data.error || "Face Not Recognized" });
-          if (onError) onError(data.error || "Face Not Recognized");
-        }
-      } else if (mode === "register") {
-        const img = await faceapi.fetchImage(imageSrc);
-        const detection = await faceapi
-          .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions())
-          .withFaceLandmarks()
-          .withFaceDescriptor();
+      const img = await faceapi.fetchImage(imageSrc);
+      const detection = await faceapi
+        .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions())
+        .withFaceLandmarks()
+        .withFaceDescriptor();
 
-        if (!detection) {
-          setResult({ success: false, message: "No face detected. Please try again." });
-          if (onError) onError("No face detected");
-          return;
-        }
+      if (!detection) {
+        setResult({ success: false, message: "No face detected. Please try again." });
+        if (onError) onError("No face detected");
+        return;
+      }
 
-        const descriptor = Array.from(detection.descriptor);
-        const res = await fetch("/api/face/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ embedding: descriptor }),
-        });
-        const data = await res.json();
-        if (data.success) {
-          setResult({ success: true, message: "Face Registered Successfully!" });
-          if (onSuccess) onSuccess(data);
-        } else {
-          setResult({ success: false, message: data.error || "Registration failed" });
-          if (onError) onError(data.error || "Registration failed");
-        }
+      const descriptor = Array.from(detection.descriptor);
+      const res = await fetch("/api/face/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ embedding: descriptor }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setResult({ success: true, message: "Face Registered Successfully!" });
+        if (onSuccess) onSuccess(data);
+      } else {
+        setResult({ success: false, message: data.error || "Registration failed" });
+        if (onError) onError(data.error || "Registration failed");
       }
     } catch (err: any) {
       setResult({ success: false, message: err.message || "Something went wrong" });
@@ -117,13 +280,33 @@ export default function CameraModal({
       setLoading(false);
       setCapturing(false);
     }
-  }, [capturing, mode, onSuccess, onError]);
+  }, [capturing, onSuccess, onError]);
 
-  const reset = () => {
+  const resetRegister = () => {
     setResult(null);
     setCapturing(false);
     setLoading(false);
   };
+
+  const retryScan = () => {
+    setMatchedUser(null);
+    doneRef.current = false;
+    busyRef.current = false;
+    setScanState("scanning");
+    setScanMessage("Position your face in the frame");
+  };
+
+  // Border color reflects the current scan state.
+  const borderColor =
+    scanState === "matched" || scanState === "success"
+      ? "border-emerald-500"
+      : scanState === "detected"
+      ? "border-amber-400"
+      : scanState === "error" || scanState === "already"
+      ? "border-red-500"
+      : "border-indigo-500/40";
+
+  const showScannerLine = scanState === "scanning" || scanState === "detected";
 
   return (
     <AnimatePresence>

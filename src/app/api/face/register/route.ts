@@ -17,6 +17,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Ensure only one active face embedding per user: remove old ones, then add new.
+    await prisma.faceEmbedding.deleteMany({
+      where: { userId: session.id },
+    });
+
     await prisma.faceEmbedding.create({
       data: {
         userId: session.id,

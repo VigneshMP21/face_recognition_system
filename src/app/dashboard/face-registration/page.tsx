@@ -32,10 +32,20 @@ export default function FaceRegistrationPage() {
   const [error, setError] = useState("");
   const [faceDetected, setFaceDetected] = useState(false);
   const [status, setStatus] = useState<"loading" | "ready" | "scanning" | "processing" | "done">("loading");
+  const [alreadyRegistered, setAlreadyRegistered] = useState(false);
 
   useEffect(() => {
     async function init() {
       try {
+        // Check if the user already has a registered face.
+        try {
+          const statusRes = await fetch("/api/face/status");
+          const statusData = await statusRes.json();
+          if (statusData.registered) setAlreadyRegistered(true);
+        } catch {
+          // Non-fatal: continue even if the status check fails.
+        }
+
         await Promise.all([
           faceapi.nets.tinyFaceDetector.loadFromUri("https://justadudewhohacks.github.io/face-api.js/models"),
           faceapi.nets.faceLandmark68Net.loadFromUri("https://justadudewhohacks.github.io/face-api.js/models"),
@@ -160,6 +170,7 @@ export default function FaceRegistrationPage() {
     setStarted(false);
     setCurrentCapture(0);
     setRegistered(false);
+    setAlreadyRegistered(true);
     setError("");
     setFaceDetected(false);
     setStatus("ready");
@@ -193,47 +204,74 @@ export default function FaceRegistrationPage() {
             </motion.div>
           )}
 
-          <GlassCard glow="indigo" className="!p-12">
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ type: "spring", stiffness: 200, delay: 0.2 }}
-              className="w-24 h-24 rounded-full bg-indigo-500/20 flex items-center justify-center mx-auto mb-6"
-            >
-              <ScanFace className="w-12 h-12 text-indigo-400" />
-            </motion.div>
+          {alreadyRegistered ? (
+            <GlassCard glow="cyan" className="!p-12">
+              <motion.div
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ type: "spring", stiffness: 200, delay: 0.2 }}
+                className="w-24 h-24 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-6"
+              >
+                <CheckCircle2 className="w-12 h-12 text-emerald-400" />
+              </motion.div>
 
-            <h2 className="text-xl font-semibold text-white mb-3">
-              Ready to Register Your Face?
-            </h2>
-            <p className="text-gray-400 mb-6 max-w-md mx-auto">
-              We'll capture your face from 5 angles to create a secure facial
-              signature. Make sure you're in a well-lit area.
-            </p>
+              <h2 className="text-2xl font-bold text-emerald-400 mb-3">
+                ✅ Face Registered Successfully
+              </h2>
+              <p className="text-gray-400 mb-8 max-w-md mx-auto">
+                Your face is already registered. You can now use face recognition
+                to mark attendance. If your appearance has changed, you can
+                re-register to update your facial signature.
+              </p>
 
-            <div className="grid grid-cols-5 gap-3 max-w-sm mx-auto mb-8">
-              {CAPTURE_ANGLES.map((angle, i) => (
-                <div key={angle} className="text-center p-2 rounded-lg bg-white/5">
-                  <div className="w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center mx-auto mb-1">
-                    <span className="text-xs font-bold text-indigo-300">{i + 1}</span>
+              <GradientButton onClick={startCapture} disabled={!modelsLoaded} className="px-10">
+                <ScanFace className="w-5 h-5" />
+                Re-register Face
+              </GradientButton>
+            </GlassCard>
+          ) : (
+            <GlassCard glow="indigo" className="!p-12">
+              <motion.div
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ type: "spring", stiffness: 200, delay: 0.2 }}
+                className="w-24 h-24 rounded-full bg-indigo-500/20 flex items-center justify-center mx-auto mb-6"
+              >
+                <ScanFace className="w-12 h-12 text-indigo-400" />
+              </motion.div>
+
+              <h2 className="text-xl font-semibold text-white mb-3">
+                Ready to Register Your Face?
+              </h2>
+              <p className="text-gray-400 mb-6 max-w-md mx-auto">
+                We'll capture your face from 5 angles to create a secure facial
+                signature. Make sure you're in a well-lit area.
+              </p>
+
+              <div className="grid grid-cols-5 gap-3 max-w-sm mx-auto mb-8">
+                {CAPTURE_ANGLES.map((angle, i) => (
+                  <div key={angle} className="text-center p-2 rounded-lg bg-white/5">
+                    <div className="w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center mx-auto mb-1">
+                      <span className="text-xs font-bold text-indigo-300">{i + 1}</span>
+                    </div>
+                    <span className="text-[10px] text-gray-500 leading-tight block">{angle}</span>
                   </div>
-                  <span className="text-[10px] text-gray-500 leading-tight block">{angle}</span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
 
-            <GradientButton
-              onClick={startCapture}
-              disabled={!modelsLoaded}
-              className="px-10"
-              loading={!modelsLoaded && !error}
-            >
-              <Play className="w-5 h-5" />
-              {!modelsLoaded && !error
-                ? "Loading models..."
-                : "Start Face Registration"}
-            </GradientButton>
-          </GlassCard>
+              <GradientButton
+                onClick={startCapture}
+                disabled={!modelsLoaded}
+                className="px-10"
+                loading={!modelsLoaded && !error}
+              >
+                <Play className="w-5 h-5" />
+                {!modelsLoaded && !error
+                  ? "Loading models..."
+                  : "Start Face Registration"}
+              </GradientButton>
+            </GlassCard>
+          )}
         </motion.div>
       ) : registered ? (
         <motion.div

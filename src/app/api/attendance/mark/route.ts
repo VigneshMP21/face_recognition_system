@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getTodayDate, getCurrentTime } from "@/lib/utils";
+import { getSession } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
   try {
-    const { userId } = await req.json();
+    const body = await req.json().catch(() => ({}));
+    const session = await getSession();
+
+    // Prefer the explicitly provided userId, otherwise fall back to the
+    // currently authenticated user (self-service face attendance).
+    const userId: string | undefined = body?.userId || session?.id;
+
     if (!userId) {
       return NextResponse.json(
         { error: "User ID is required" },
