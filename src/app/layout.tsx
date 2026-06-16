@@ -18,9 +18,11 @@ export const metadata: Metadata = {
   description:
     "A modern, AI-powered attendance system using facial recognition technology. Secure, fast, and contactless attendance marking.",
   icons: {
-    icon: "/smart_attendance.png",
-    shortcut: "/smart_attendance.png",
-    apple: "/smart_attendance.png",
+    icon: [
+      { url: "/smart_attendance.png", type: "image/png" },
+    ],
+    shortcut: [{ url: "/smart_attendance.png", type: "image/png" }],
+    apple: [{ url: "/smart_attendance.png", type: "image/png" }],
   },
 };
 
