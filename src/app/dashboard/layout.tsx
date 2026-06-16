@@ -35,7 +35,7 @@ export default function DashboardLayout({
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center p-4">
         <LoadingSpinner text="Loading dashboard..." />
       </div>
     );
@@ -46,8 +46,10 @@ export default function DashboardLayout({
   return (
     <div className="flex min-h-screen">
       <Sidebar role="student" />
-      <main className="flex-1 overflow-auto p-4 md:p-8">
-        {children}
+      <main className="flex-1 overflow-auto p-4 md:p-6 lg:p-8">
+        <div className="max-w-6xl mx-auto">
+          {children}
+        </div>
       </main>
     </div>
   );

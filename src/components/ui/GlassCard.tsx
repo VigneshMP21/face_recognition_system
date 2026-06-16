@@ -17,11 +17,11 @@ export default function GlassCard({
   hover = false,
 }: GlassCardProps) {
   const glowClass = {
-    indigo: "hover:shadow-[0_0_30px_rgba(99,102,241,0.2)]",
-    purple: "hover:shadow-[0_0_30px_rgba(139,92,246,0.2)]",
-    cyan: "hover:shadow-[0_0_30px_rgba(6,182,212,0.2)]",
-    emerald: "hover:shadow-[0_0_30px_rgba(16,185,129,0.2)]",
-    red: "hover:shadow-[0_0_30px_rgba(239,68,68,0.2)]",
+    indigo: "hover:shadow-[0_0_30px_rgba(99,102,241,0.25)] hover:border-indigo-500/30",
+    purple: "hover:shadow-[0_0_30px_rgba(139,92,246,0.25)] hover:border-purple-500/30",
+    cyan: "hover:shadow-[0_0_30px_rgba(6,182,212,0.25)] hover:border-cyan-500/30",
+    emerald: "hover:shadow-[0_0_30px_rgba(16,185,129,0.25)] hover:border-emerald-500/30",
+    red: "hover:shadow-[0_0_30px_rgba(239,68,68,0.25)] hover:border-red-500/30",
     none: "",
   };
 
@@ -31,8 +31,8 @@ export default function GlassCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
       className={cn(
-        "glass rounded-2xl p-6 transition-all duration-300",
-        hover && "card-lift",
+        "glass rounded-xl md:rounded-2xl p-4 md:p-6 transition-all duration-300",
+        hover && "card-lift-enhanced cursor-pointer",
         glowClass[glow],
         className
       )}

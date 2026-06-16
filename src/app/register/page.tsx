@@ -74,16 +74,21 @@ export default function RegisterPage() {
         animate={{ opacity: 1, y: 0 }}
         className="w-full max-w-md"
       >
-        <GlassCard glow="indigo" className="!p-8">
-          <div className="text-center mb-6">
-            <Link href="/" className="inline-flex items-center gap-2 text-gray-400 hover:text-white mb-4 transition-colors">
-              <ArrowLeft className="w-4 h-4" /> Back to Home
+        <GlassCard glow="indigo" className="!p-6 md:!p-8 auth-card">
+          <div className="text-center mb-5 md:mb-6">
+            <Link
+              href="/"
+              className="inline-flex items-center gap-1.5 text-gray-400 hover:text-white mb-4 md:mb-5 transition-colors text-sm"
+            >
+              <ArrowLeft className="w-3.5 h-3.5 md:w-4 md:h-4" />
+              <span className="hidden sm:inline">Back to Home</span>
+              <span className="sm:hidden">Back</span>
             </Link>
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center mx-auto mb-4">
-              <ScanFace className="w-7 h-7 text-white" />
+            <div className="logo-wrapper w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-cyan-500 flex items-center justify-center mx-auto mb-3 md:mb-4 shadow-lg shadow-indigo-500/20">
+              <ScanFace className="w-6 h-6 md:w-7 md:h-7 text-white" />
             </div>
-            <h1 className="text-2xl font-bold text-white">Create Account</h1>
-            <p className="text-sm text-gray-400 mt-1">
+            <h1 className="text-xl md:text-2xl font-bold text-white">Create Account</h1>
+            <p className="text-xs md:text-sm text-gray-400 mt-1.5">
               Register to use the Smart Attendance System
             </p>
           </div>
@@ -92,13 +97,13 @@ export default function RegisterPage() {
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 mb-4 text-sm text-red-400 text-center"
+              className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 mb-4 text-xs md:text-sm text-red-400 text-center"
             >
               {error}
             </motion.div>
           )}
 
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-3 md:space-y-4 auth-form">
             <InputField
               label="Full Name"
               placeholder="Enter your full name"
@@ -136,7 +141,7 @@ export default function RegisterPage() {
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-[38px] text-gray-400 hover:text-white transition-colors"
+                className="absolute right-3 top-[36px] md:top-[38px] text-gray-400 hover:text-white transition-colors p-1"
               >
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
@@ -152,13 +157,13 @@ export default function RegisterPage() {
               type="submit"
               loading={loading}
               disabled={loading}
-              className="w-full"
+              className="w-full shadow-lg shadow-indigo-500/20"
             >
               {loading ? "Creating Account..." : "Create Account"}
             </GradientButton>
           </form>
 
-          <p className="text-center text-sm text-gray-400 mt-6">
+          <p className="text-center text-xs md:text-sm text-gray-400 mt-5 md:mt-6">
             Already have an account?{" "}
             <Link
               href="/login"

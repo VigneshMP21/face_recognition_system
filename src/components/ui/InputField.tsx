@@ -13,24 +13,26 @@ const InputField = forwardRef<HTMLInputElement, InputFieldProps>(
     return (
       <div className="space-y-1.5">
         {label && (
-          <label className="block text-sm font-medium text-gray-300">
+          <label className="block text-xs md:text-sm font-medium text-gray-300">
             {label}
           </label>
         )}
         <input
           ref={ref}
           className={cn(
-            "w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10",
-            "text-white placeholder-gray-500",
-            "focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500",
+            "w-full px-3.5 py-3 md:px-4 md:py-3.5 rounded-xl",
+            "bg-white/5 border border-white/10",
+            "text-white text-sm md:text-base placeholder-gray-500",
+            "focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20",
             "transition-all duration-200",
-            error && "border-red-500 focus:border-red-500 focus:ring-red-500",
+            "input-glow",
+            error && "border-red-500 focus:border-red-500 focus:ring-red-500/20",
             className
           )}
           {...props}
         />
         {error && (
-          <p className="text-sm text-red-400 mt-1">{error}</p>
+          <p className="text-xs md:text-sm text-red-400 mt-1">{error}</p>
         )}
       </div>
     );

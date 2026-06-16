@@ -8,6 +8,7 @@ import {
   XCircle,
   TrendingUp,
   ScanFace,
+  ArrowRight,
 } from "lucide-react";
 import GlassCard from "@/components/ui/GlassCard";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
@@ -38,28 +39,28 @@ export default function AdminDashboard() {
       label: "Total Students",
       value: stats.totalStudents,
       icon: Users,
-      gradient: "from-indigo-500 to-purple-500",
+      gradient: "from-indigo-500 via-purple-500 to-pink-500",
       glow: "indigo",
     },
     {
       label: "Present Today",
       value: stats.todayPresent,
       icon: CheckCircle2,
-      gradient: "from-emerald-500 to-cyan-500",
+      gradient: "from-emerald-500 via-cyan-500 to-teal-500",
       glow: "emerald",
     },
     {
       label: "Absent Today",
       value: stats.todayAbsent,
       icon: XCircle,
-      gradient: "from-red-500 to-orange-500",
+      gradient: "from-red-500 via-orange-500 to-amber-500",
       glow: "red",
     },
     {
       label: "Attendance %",
       value: `${stats.attendancePercentage}%`,
       icon: TrendingUp,
-      gradient: "from-cyan-500 to-blue-500",
+      gradient: "from-cyan-500 via-blue-500 to-indigo-500",
       glow: "cyan",
     },
   ];
@@ -70,15 +71,15 @@ export default function AdminDashboard() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
       >
-        <h1 className="text-2xl md:text-3xl font-bold text-white mb-2">
+        <h1 className="text-xl md:text-2xl lg:text-3xl font-bold text-white mb-1 md:mb-2">
           Admin Dashboard
         </h1>
-        <p className="text-gray-400 mb-6">
+        <p className="text-sm text-gray-400 mb-5 md:mb-6">
           Monitor attendance and manage students
         </p>
       </motion.div>
 
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6 md:mb-8 admin-stats-grid">
         {cards.map((card, i) => (
           <motion.div
             key={card.label}
@@ -86,10 +87,12 @@ export default function AdminDashboard() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.1 }}
           >
-            <GlassCard hover>
+            <GlassCard hover className="!p-4 md:!p-6">
               <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-sm text-gray-400 mb-1">{card.label}</p>
+                <div className="flex-1">
+                  <p className="text-xs md:text-sm text-gray-400 mb-1">
+                    {card.label}
+                  </p>
                   <motion.p
                     initial={{ scale: 0.5 }}
                     animate={{ scale: 1 }}
@@ -98,15 +101,15 @@ export default function AdminDashboard() {
                       stiffness: 100,
                       delay: 0.3 + i * 0.1,
                     }}
-                    className="text-3xl font-bold text-white"
+                    className="text-2xl md:text-3xl font-bold text-white"
                   >
                     {card.value}
                   </motion.p>
                 </div>
                 <div
-                  className={`w-12 h-12 rounded-xl bg-gradient-to-br ${card.gradient} flex items-center justify-center`}
+                  className={`w-10 h-10 md:w-12 md:h-12 rounded-xl bg-gradient-to-br ${card.gradient} flex items-center justify-center flex-shrink-0 shadow-lg`}
                 >
-                  <card.icon className="w-6 h-6 text-white" />
+                  <card.icon className="w-5 h-5 md:w-6 md:h-6 text-white" />
                 </div>
               </div>
             </GlassCard>
@@ -114,21 +117,21 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6">
-        <GlassCard>
-          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-indigo-400" />
+      <div className="grid md:grid-cols-2 gap-4 md:gap-6 admin-overview">
+        <GlassCard className="!p-5 md:!p-6">
+          <h2 className="text-base md:text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 md:w-5 md:h-5 text-indigo-400" />
             Today&apos;s Overview
           </h2>
           <div className="space-y-4">
             <div>
-              <div className="flex justify-between text-sm mb-1">
+              <div className="flex justify-between text-xs md:text-sm mb-1.5 md:mb-2">
                 <span className="text-gray-400">Present</span>
                 <span className="text-emerald-400 font-medium">
                   {stats.todayPresent} / {stats.totalStudents}
                 </span>
               </div>
-              <div className="h-3 rounded-full bg-white/5 overflow-hidden">
+              <div className="h-2.5 md:h-3 rounded-full bg-white/5 overflow-hidden">
                 <motion.div
                   initial={{ width: 0 }}
                   animate={{
@@ -139,18 +142,18 @@ export default function AdminDashboard() {
                     }%`,
                   }}
                   transition={{ duration: 1, delay: 0.5 }}
-                  className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-cyan-500"
+                  className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-cyan-500 to-teal-500"
                 />
               </div>
             </div>
             <div>
-              <div className="flex justify-between text-sm mb-1">
+              <div className="flex justify-between text-xs md:text-sm mb-1.5 md:mb-2">
                 <span className="text-gray-400">Absent</span>
                 <span className="text-red-400 font-medium">
                   {stats.todayAbsent} / {stats.totalStudents}
                 </span>
               </div>
-              <div className="h-3 rounded-full bg-white/5 overflow-hidden">
+              <div className="h-2.5 md:h-3 rounded-full bg-white/5 overflow-hidden">
                 <motion.div
                   initial={{ width: 0 }}
                   animate={{
@@ -161,30 +164,32 @@ export default function AdminDashboard() {
                     }%`,
                   }}
                   transition={{ duration: 1, delay: 0.7 }}
-                  className="h-full rounded-full bg-gradient-to-r from-red-500 to-orange-500"
+                  className="h-full rounded-full bg-gradient-to-r from-red-500 via-orange-500 to-amber-500"
                 />
               </div>
             </div>
           </div>
         </GlassCard>
 
-        <GlassCard>
-          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <ScanFace className="w-5 h-5 text-indigo-400" />
+        <GlassCard className="!p-5 md:!p-6">
+          <h2 className="text-base md:text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <ScanFace className="w-4 h-4 md:w-5 md:h-5 text-indigo-400" />
             Quick Actions
           </h2>
-          <div className="space-y-3">
+          <div className="space-y-2.5 md:space-y-3">
             <a
               href="/admin/attendance"
-              className="block p-4 rounded-xl bg-white/5 hover:bg-white/10 transition-all text-white font-medium"
+              className="block p-3.5 md:p-4 rounded-xl bg-white/5 hover:bg-white/10 hover:border hover:border-white/10 transition-all text-sm md:text-base text-white font-medium flex items-center justify-between group"
             >
-              View All Attendance Records
+              <span>View All Attendance Records</span>
+              <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-white transition-colors" />
             </a>
             <a
               href="/admin/students"
-              className="block p-4 rounded-xl bg-white/5 hover:bg-white/10 transition-all text-white font-medium"
+              className="block p-3.5 md:p-4 rounded-xl bg-white/5 hover:bg-white/10 hover:border hover:border-white/10 transition-all text-sm md:text-base text-white font-medium flex items-center justify-between group"
             >
-              Manage Students
+              <span>Manage Students</span>
+              <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-white transition-colors" />
             </a>
           </div>
         </GlassCard>

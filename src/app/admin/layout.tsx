@@ -35,7 +35,7 @@ export default function AdminLayout({
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center p-4">
         <LoadingSpinner text="Loading admin panel..." />
       </div>
     );
@@ -46,7 +46,11 @@ export default function AdminLayout({
   return (
     <div className="flex min-h-screen">
       <Sidebar role="admin" />
-      <main className="flex-1 overflow-auto p-4 md:p-8">{children}</main>
+      <main className="flex-1 overflow-auto p-4 md:p-6 lg:p-8">
+        <div className="max-w-7xl mx-auto">
+          {children}
+        </div>
+      </main>
     </div>
   );
 }

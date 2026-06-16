@@ -326,7 +326,7 @@ export default function FaceRegistrationPage() {
   const ci = Math.min(currentCapture, POSES.length - 1);
 
   return (
-    <div className="max-w-3xl mx-auto">
+    <div className="max-w-3xl mx-auto px-3 md:px-4">
       <AnimatePresence mode="wait">
 
         {/* ════════════════════════════════════════════════════════
@@ -340,8 +340,8 @@ export default function FaceRegistrationPage() {
             exit={{ opacity: 0, y: -20 }}
             className="text-center"
           >
-            <h1 className="text-2xl md:text-3xl font-bold text-white mb-2">Face Registration</h1>
-            <p className="text-gray-400 mb-8">Register your face to use attendance features</p>
+            <h1 className="text-xl md:text-2xl lg:text-3xl font-bold text-white mb-2">Face Registration</h1>
+            <p className="text-sm md:text-base text-gray-400 mb-6 md:mb-8">Register your face to use attendance features</p>
 
             {error && <ErrorBanner message={error} />}
 

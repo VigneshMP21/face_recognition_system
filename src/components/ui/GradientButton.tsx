@@ -24,9 +24,9 @@ export default function GradientButton({
   size = "md",
 }: GradientButtonProps) {
   const sizeClass = {
-    sm: "px-4 py-2 text-sm",
-    md: "px-6 py-3 text-base",
-    lg: "px-8 py-4 text-lg",
+    sm: "px-4 py-2 text-xs md:text-sm",
+    md: "px-5 py-2.5 text-sm md:text-base",
+    lg: "px-6 py-3 md:px-8 md:py-4 text-base md:text-lg",
   };
 
   return (
@@ -39,8 +39,9 @@ export default function GradientButton({
       className={cn(
         "relative overflow-hidden rounded-xl font-semibold text-white transition-all duration-300",
         "bg-gradient-to-r from-indigo-500 via-purple-500 to-cyan-500",
-        "hover:shadow-lg hover:shadow-indigo-500/25",
-        "disabled:opacity-50 disabled:cursor-not-allowed",
+        "hover:shadow-[0_0_25px_rgba(99,102,241,0.35)] hover:shadow-indigo-500/25",
+        "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100",
+        "border border-white/5",
         sizeClass[size],
         className
       )}
@@ -50,7 +51,7 @@ export default function GradientButton({
         whileHover={{ opacity: 1 }}
       />
       <span className="relative flex items-center justify-center gap-2">
-        {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+        {loading && <Loader2 className="w-3.5 h-3.5 md:w-4 md:h-4 animate-spin" />}
         {children}
       </span>
     </motion.button>

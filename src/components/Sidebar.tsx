@@ -67,19 +67,15 @@ export default function Sidebar({ role }: SidebarProps) {
   const sidebarContent = (
     <div className="flex flex-col h-full">
       <div className="p-4 flex items-center gap-3 border-b border-white/5">
-        <div className="w-9 h-9 rounded-xl overflow-hidden bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center flex-shrink-0">
-          <img
-            src="/smart_attendance.png"
-            alt="Smart Attendance"
-            className="w-full h-full object-cover"
-          />
+        <div className="w-10 h-10 md:w-11 md:h-11 rounded-xl md:rounded-xl overflow-hidden bg-gradient-to-br from-indigo-500 via-purple-500 to-cyan-500 flex items-center justify-center flex-shrink-0 shadow-lg shadow-indigo-500/20">
+          <ScanFaceIcon className="w-5 h-5 md:w-6 md:h-6 text-white" />
         </div>
         {!collapsed && (
           <div className="overflow-hidden">
-            <p className="text-sm font-semibold text-white whitespace-nowrap">
+            <p className="text-sm md:text-base font-semibold text-white whitespace-nowrap">
               Smart Attendance
             </p>
-            <p className="text-[10px] text-gray-500 capitalize">{role}</p>
+            <p className="text-[10px] md:text-xs text-gray-500 capitalize">{role}</p>
           </div>
         )}
       </div>
@@ -88,13 +84,19 @@ export default function Sidebar({ role }: SidebarProps) {
         {links.map((link) => {
           const active = isActive(link.href);
           return (
-            <Link key={link.href} href={link.href} onClick={() => setMobileOpen(false)}>
+            <Link
+              key={link.href}
+              href={link.href}
+              onClick={() => setMobileOpen(false)}
+              className="block"
+            >
               <motion.div
-                whileHover={{ x: 2 }}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 ${
+                whileHover={{ x: 4 }}
+                whileTap={{ scale: 0.98 }}
+                className={`flex items-center gap-3 px-3 py-3 md:py-2.5 rounded-xl transition-all duration-200 ${
                   active
-                    ? "bg-gradient-to-r from-indigo-500/20 to-purple-500/20 text-white border border-indigo-500/20"
-                    : "text-gray-400 hover:text-white hover:bg-white/5"
+                    ? "bg-gradient-to-r from-indigo-500/20 via-purple-500/20 to-cyan-500/20 text-white border border-indigo-500/30 shadow-lg shadow-indigo-500/10"
+                    : "text-gray-400 hover:text-white hover:bg-white/10"
                 }`}
               >
                 <link.icon className="w-5 h-5 flex-shrink-0" />
@@ -112,7 +114,7 @@ export default function Sidebar({ role }: SidebarProps) {
       <div className="p-3 border-t border-white/5">
         <button
           onClick={handleLogout}
-          className="flex items-center gap-3 px-3 py-2.5 w-full rounded-xl text-gray-400 hover:text-red-400 hover:bg-red-500/5 transition-all"
+          className="flex items-center gap-3 px-3 py-3 md:py-2.5 w-full rounded-xl text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
         >
           <LogOut className="w-5 h-5 flex-shrink-0" />
           {!collapsed && <span className="text-sm font-medium">Logout</span>}
@@ -125,7 +127,8 @@ export default function Sidebar({ role }: SidebarProps) {
     <>
       <button
         onClick={() => setMobileOpen(true)}
-        className="fixed top-4 left-4 z-50 md:hidden p-2 rounded-xl glass text-gray-400 hover:text-white"
+        className="fixed top-3 md:top-4 left-3 md:left-4 z-50 md:hidden p-2.5 rounded-xl glass text-gray-400 hover:text-white shadow-lg border border-white/10 touch-target"
+        aria-label="Open menu"
       >
         <Menu className="w-5 h-5" />
       </button>
@@ -136,17 +139,24 @@ export default function Sidebar({ role }: SidebarProps) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden"
+            className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm md:hidden"
             onClick={() => setMobileOpen(false)}
           >
             <motion.aside
               initial={{ x: "-100%" }}
               animate={{ x: 0 }}
               exit={{ x: "-100%" }}
-              transition={{ type: "spring", damping: 25 }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
               onClick={(e) => e.stopPropagation()}
-              className="w-64 h-full glass border-r border-white/10"
+              className="w-72 md:w-64 h-full glass-heavy border-r border-white/10"
             >
+              <button
+                onClick={() => setMobileOpen(false)}
+                className="absolute top-4 right-4 p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-all"
+                aria-label="Close menu"
+              >
+                <X className="w-5 h-5" />
+              </button>
               {sidebarContent}
             </motion.aside>
           </motion.div>
@@ -156,15 +166,16 @@ export default function Sidebar({ role }: SidebarProps) {
       <aside className="hidden md:block relative">
         <motion.aside
           animate={{ width: collapsed ? 72 : 240 }}
-          className="h-screen glass border-r border-white/10 overflow-hidden sticky top-0"
+          className="h-screen glass-heavy border-r border-white/10 overflow-hidden sticky top-0"
         >
           {sidebarContent}
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="absolute -right-3 top-20 w-6 h-6 rounded-full glass border border-white/10 flex items-center justify-center text-gray-400 hover:text-white"
+            className="absolute -right-3 top-20 w-6 h-6 rounded-full glass border border-white/10 flex items-center justify-center text-gray-400 hover:text-white transition-all"
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
             <ChevronLeft
-              className={`w-3 h-3 transition-transform ${
+              className={`w-3 h-3 transition-transform duration-300 ${
                 collapsed ? "rotate-180" : ""
               }`}
             />
