@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard,
   User,
-  ScanFace,
   History,
   Users,
   LogOut,
@@ -68,8 +67,12 @@ export default function Sidebar({ role }: SidebarProps) {
   const sidebarContent = (
     <div className="flex flex-col h-full">
       <div className="p-4 flex items-center gap-3 border-b border-white/5">
-        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center flex-shrink-0">
-          <ScanFace className="w-5 h-5 text-white" />
+        <div className="w-9 h-9 rounded-xl overflow-hidden bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center flex-shrink-0">
+          <img
+            src="/smart_attendance.png"
+            alt="Smart Attendance"
+            className="w-full h-full object-cover"
+          />
         </div>
         {!collapsed && (
           <div className="overflow-hidden">

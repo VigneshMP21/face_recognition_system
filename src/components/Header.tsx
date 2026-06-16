@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ScanFace, Menu, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import Link from "next/link";
 import GradientButton from "./ui/GradientButton";
 
@@ -29,9 +29,13 @@ export default function Header() {
           <Link href="/" className="flex items-center gap-3 group">
             <motion.div
               whileHover={{ rotate: -10, scale: 1.1 }}
-              className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center"
+              className="w-10 h-10 rounded-xl overflow-hidden bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center"
             >
-              <ScanFace className="w-5 h-5 text-white" />
+              <img
+                src="/smart_attendance.png"
+                alt="Smart Attendance"
+                className="w-full h-full object-cover"
+              />
             </motion.div>
             <div className="hidden sm:block">
               <h1 className="text-lg font-bold text-white">
