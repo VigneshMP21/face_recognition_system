@@ -28,6 +28,7 @@ interface Student {
 
 export default function AdminStudentsPage() {
   const [students, setStudents] = useState<Student[]>([]);
+  const [profileImages, setProfileImages] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -48,6 +49,16 @@ export default function AdminStudentsPage() {
       .then((data) => {
         setStudents(data.students);
         setTotalPages(data.pagination.totalPages);
+
+        // Load profile images from localStorage for each student
+        const images: Record<string, string> = {};
+        data.students.forEach((student: Student) => {
+          const savedImage = localStorage.getItem(`profile_image_${student.id}`);
+          if (savedImage) {
+            images[student.id] = savedImage;
+          }
+        });
+        setProfileImages(images);
       })
       .finally(() => setLoading(false));
   }, [page, search]);
@@ -75,6 +86,15 @@ export default function AdminStudentsPage() {
     } finally {
       setDeleting(false);
     }
+  };
+
+  const getInitials = (name: string) => {
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2);
   };
 
   return (
@@ -123,7 +143,7 @@ export default function AdminStudentsPage() {
               <thead>
                 <tr className="border-b border-white/5">
                   <th className="text-left p-4 text-sm font-medium text-gray-400">
-                    Name
+                    Student
                   </th>
                   <th className="text-left p-4 text-sm font-medium text-gray-400">
                     Roll Number
@@ -153,13 +173,20 @@ export default function AdminStudentsPage() {
                   >
                     <td className="p-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-xs font-bold text-white">
-                          {student.name
-                            .split(" ")
-                            .map((n) => n[0])
-                            .join("")
-                            .toUpperCase()
-                            .slice(0, 2)}
+                        <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0">
+                          {profileImages[student.id] ? (
+                            <img
+                              src={profileImages[student.id]}
+                              alt={student.name}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center">
+                              <span className="text-xs font-bold text-white">
+                                {getInitials(student.name)}
+                              </span>
+                            </div>
+                          )}
                         </div>
                         <span className="text-sm font-medium text-white">
                           {student.name}
