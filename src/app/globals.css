@@ -600,10 +600,38 @@ body {
 }
 
 /* =============================================
+   MOBILE HEADER (only visible < 480px)
+   ============================================= */
+
+/* Hidden by default (>= 480px). Sidebar floating toggle handles those sizes. */
+.mobile-header {
+  display: none;
+}
+
+/* When the MobileHeader is in control, hide the sidebar's floating toggle
+   below 480px so it doesn't overlap the header toggle. */
+@media (max-width: 480px) {
+  .sidebar-floating-toggle {
+    display: none;
+  }
+}
+
+/* =============================================
    MOBILE RESPONSIVE STYLES (< 480px)
    ============================================= */
 
 @media (max-width: 480px) {
+  /* ── Mobile Header ────────────────────────── */
+
+  .mobile-header {
+    display: flex;
+  }
+
+  /* Push page content below the fixed mobile header (header height = 3.5rem) */
+  .main-with-mobile-header {
+    padding-top: 4.5rem;
+  }
+
   /* ── Base Typography ─────────────────────── */
 
   body {

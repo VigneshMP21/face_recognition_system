@@ -17,6 +17,11 @@ export const metadata: Metadata = {
   title: "Smart Attendance System | AI Face Recognition",
   description:
     "A modern, AI-powered attendance system using facial recognition technology. Secure, fast, and contactless attendance marking.",
+  icons: {
+    icon: "/smart_attendance.png",
+    shortcut: "/smart_attendance.png",
+    apple: "/smart_attendance.png",
+  },
 };
 
 export default function RootLayout({

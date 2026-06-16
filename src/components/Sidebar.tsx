@@ -19,6 +19,10 @@ import { usePathname, useRouter } from "next/navigation";
 
 interface SidebarProps {
   role: "student" | "admin";
+  /** Controlled open state for the mobile drawer (optional). */
+  mobileOpen?: boolean;
+  /** Setter for the controlled mobile drawer state (optional). */
+  onMobileOpenChange?: (open: boolean) => void;
 }
 
 interface UserData {
@@ -52,12 +56,27 @@ const adminLinks = [
   },
 ];
 
-export default function Sidebar({ role }: SidebarProps) {
+export default function Sidebar({
+  role,
+  mobileOpen: controlledMobileOpen,
+  onMobileOpenChange,
+}: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [internalMobileOpen, setInternalMobileOpen] = useState(false);
   const [user, setUser] = useState<UserData | null>(null);
+
+  // Support both controlled (via props) and uncontrolled usage.
+  const isControlled = controlledMobileOpen !== undefined;
+  const mobileOpen = isControlled ? controlledMobileOpen : internalMobileOpen;
+  const setMobileOpen = (open: boolean) => {
+    if (isControlled) {
+      onMobileOpenChange?.(open);
+    } else {
+      setInternalMobileOpen(open);
+    }
+  };
 
   useEffect(() => {
     fetch("/api/auth/user")
@@ -211,9 +230,18 @@ export default function Sidebar({ role }: SidebarProps) {
 
   return (
     <>
+      {/*
+        Floating toggle.
+        - Uncontrolled usage: always shown below md (default behavior).
+        - Controlled usage: the MobileHeader provides the toggle below 480px,
+          so this floating button is hidden below 480px (via .sidebar-floating-toggle)
+          and only appears for the 480px–768px range where the drawer is still used.
+      */}
       <button
         onClick={() => setMobileOpen(true)}
-        className="fixed top-3 md:top-4 left-3 md:left-4 z-50 md:hidden p-2.5 rounded-xl glass text-gray-400 hover:text-white shadow-lg border border-white/10 touch-target"
+        className={`${
+          isControlled ? "sidebar-floating-toggle" : ""
+        } fixed top-3 md:top-4 left-3 md:left-4 z-50 md:hidden p-2.5 rounded-xl glass text-gray-400 hover:text-white shadow-lg border border-white/10 touch-target`}
         aria-label="Open menu"
       >
         <Menu className="w-5 h-5" />

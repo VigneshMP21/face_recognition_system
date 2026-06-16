@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
+import MobileHeader from "@/components/MobileHeader";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 
 export default function DashboardLayout({
@@ -13,6 +14,7 @@ export default function DashboardLayout({
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
     fetch("/api/auth/user")
@@ -45,8 +47,14 @@ export default function DashboardLayout({
 
   return (
     <div className="flex min-h-screen">
-      <Sidebar role="student" />
-      <main className="flex-1 overflow-auto p-4 md:p-6 lg:p-8">
+      {/* Mobile-only top header (below 480px) */}
+      <MobileHeader onToggleSidebar={() => setSidebarOpen(true)} />
+      <Sidebar
+        role="student"
+        mobileOpen={sidebarOpen}
+        onMobileOpenChange={setSidebarOpen}
+      />
+      <main className="main-with-mobile-header flex-1 overflow-auto p-4 md:p-6 lg:p-8">
         <div className="max-w-6xl mx-auto">
           {children}
         </div>
