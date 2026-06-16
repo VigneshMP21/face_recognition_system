@@ -28,15 +28,26 @@ export default function RootLayout({
       className={`${inter.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
       <body className="min-h-full bg-[#0a0a1a] text-white">
-        {/* Background Image */}
+        {/* Desktop Background Image (visible above 480px) */}
         <div
-          className="fixed inset-0 z-0 pointer-events-none"
+          className="fixed inset-0 z-0 pointer-events-none hidden sm:block"
           style={{
             backgroundImage: "url('/background_image.png')",
             backgroundSize: 'cover',
             backgroundPosition: 'center',
             backgroundRepeat: 'no-repeat',
             opacity: 0.15,
+          }}
+        />
+        {/* Mobile Background Image (visible below 480px) */}
+        <div
+          className="fixed inset-0 z-0 pointer-events-none sm:hidden"
+          style={{
+            backgroundImage: "url('/mobile_bg.png')",
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            backgroundRepeat: 'no-repeat',
+            opacity: 0.2,
           }}
         />
         <ParticleBackground />

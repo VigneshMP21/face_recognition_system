@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard,
@@ -19,6 +19,14 @@ import { usePathname, useRouter } from "next/navigation";
 
 interface SidebarProps {
   role: "student" | "admin";
+}
+
+interface UserData {
+  id: string;
+  name: string;
+  rollNumber: string;
+  email: string;
+  profileImage?: string;
 }
 
 const studentLinks = [
@@ -49,6 +57,23 @@ export default function Sidebar({ role }: SidebarProps) {
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [user, setUser] = useState<UserData | null>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/user")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.user) {
+          setUser(data.user);
+          // Check for localStorage profile image
+          const savedImage = localStorage.getItem(`profile_image_${data.user.id}`);
+          if (savedImage) {
+            setUser((prev) => prev ? { ...prev, profileImage: savedImage } : null);
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const links = role === "admin" ? adminLinks : studentLinks;
 
@@ -62,6 +87,15 @@ export default function Sidebar({ role }: SidebarProps) {
       return pathname === href;
     }
     return pathname.startsWith(href);
+  };
+
+  const getInitials = (name: string) => {
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2);
   };
 
   const sidebarContent = (
@@ -114,6 +148,54 @@ export default function Sidebar({ role }: SidebarProps) {
           );
         })}
       </nav>
+
+      {/* User Profile Section */}
+      {user && !collapsed && (
+        <div className="px-3 py-2 border-t border-white/5">
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5">
+            <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0">
+              {user.profileImage ? (
+                <img
+                  src={user.profileImage}
+                  alt={user.name}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center">
+                  <span className="text-sm font-bold text-white">
+                    {getInitials(user.name)}
+                  </span>
+                </div>
+              )}
+            </div>
+            <div className="overflow-hidden">
+              <p className="text-sm font-medium text-white truncate">{user.name}</p>
+              <p className="text-[10px] text-gray-500 truncate">{user.rollNumber}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Collapsed profile icon */}
+      {user && collapsed && (
+        <div className="px-3 py-2 border-t border-white/5">
+          <div className="w-10 h-10 rounded-full overflow-hidden mx-auto">
+            {user.profileImage ? (
+              <img
+                src={user.profileImage}
+                alt={user.name}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center">
+                <span className="text-sm font-bold text-white">
+                  {getInitials(user.name)}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="p-3 border-t border-white/5">
         <button

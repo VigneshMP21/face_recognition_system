@@ -9,11 +9,25 @@ import {
   CalendarDays,
   ArrowRight,
   AlertCircle,
+  Activity,
+  Target,
+  Calendar,
+  TrendingUp,
 } from "lucide-react";
 import GlassCard from "@/components/ui/GlassCard";
 import GradientButton from "@/components/ui/GradientButton";
 import CameraModal from "@/components/CameraModal";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Cell,
+} from "recharts";
 
 export default function DashboardHome() {
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -22,6 +36,7 @@ export default function DashboardHome() {
   const [loading, setLoading] = useState(true);
   const [faceRegistered, setFaceRegistered] = useState(false);
   const [noFaceError, setNoFaceError] = useState(false);
+  const [analytics, setAnalytics] = useState<any>(null);
 
   useEffect(() => {
     fetch("/api/auth/user")
@@ -31,13 +46,16 @@ export default function DashboardHome() {
         return Promise.all([
           fetch("/api/attendance/today"),
           fetch("/api/face/status"),
+          fetch("/api/student/analytics"),
         ]);
       })
-      .then(async ([attendanceRes, faceRes]) => {
+      .then(async ([attendanceRes, faceRes, analyticsRes]) => {
         const attendanceData = await attendanceRes.json();
         const faceData = await faceRes.json();
+        const analyticsData = await analyticsRes.json();
         setTodayAttendance(attendanceData);
         setFaceRegistered(faceData.registered);
+        setAnalytics(analyticsData);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -58,6 +76,12 @@ export default function DashboardHome() {
     }
     setCameraOpen(false);
   };
+
+  // Chart data
+  const chartData = analytics?.weeklyData || [];
+  const presentCount = analytics?.presentDays || 0;
+  const absentCount = (analytics?.totalDays || 30) - presentCount;
+  const attendanceRate = analytics?.attendanceRate || 0;
 
   if (loading) {
     return <LoadingSpinner text="Loading dashboard..." />;
@@ -147,47 +171,204 @@ export default function DashboardHome() {
         </motion.div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4 dashboard-stats">
-        <GlassCard hover className="!p-4 md:!p-6">
-          <div className="stat-icon w-10 h-10 md:w-12 md:h-12 rounded-xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center mb-0 md:mb-3">
-            <CalendarDays className="w-5 h-5 md:w-6 md:h-6 text-indigo-400" />
-          </div>
-          <div className="stat-info">
-            <p className="text-xl md:text-2xl font-bold text-white">
-              {new Date().toLocaleDateString()}
-            </p>
-            <p className="text-xs md:text-sm text-gray-500 mt-0.5 md:mt-1">
-              Today&apos;s Date
-            </p>
-          </div>
-        </GlassCard>
-        <GlassCard hover className="!p-4 md:!p-6">
-          <div className="stat-icon w-10 h-10 md:w-12 md:h-12 rounded-xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 flex items-center justify-center mb-0 md:mb-3">
-            <Clock className="w-5 h-5 md:w-6 md:h-6 text-purple-400" />
-          </div>
-          <div className="stat-info">
-            <p className="text-xl md:text-2xl font-bold text-white">
-              {new Date().toLocaleTimeString()}
-            </p>
-            <p className="text-xs md:text-sm text-gray-500 mt-0.5 md:mt-1">
-              Current Time
-            </p>
+      {/* Quick Stats Row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+        <GlassCard className="!p-4 md:!p-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+              <Calendar className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-400">Today</p>
+              <p className="text-lg font-bold text-white">
+                {new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              </p>
+            </div>
           </div>
         </GlassCard>
-        <GlassCard hover className="!p-4 md:!p-6">
-          <div className="stat-icon w-10 h-10 md:w-12 md:h-12 rounded-xl bg-gradient-to-br from-cyan-500/20 to-emerald-500/20 flex items-center justify-center mb-0 md:mb-3">
-            <CheckCircle2 className="w-5 h-5 md:w-6 md:h-6 text-cyan-400" />
+        <GlassCard className="!p-4 md:!p-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center">
+              <Clock className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-400">Time</p>
+              <p className="text-lg font-bold text-white">
+                {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+              </p>
+            </div>
           </div>
-          <div className="stat-info">
-            <p className="text-xl md:text-2xl font-bold text-white">
-              {todayAttendance?.marked ? "Present" : "Not Marked"}
-            </p>
-            <p className="text-xs md:text-sm text-gray-500 mt-0.5 md:mt-1">
-              Status
-            </p>
+        </GlassCard>
+        <GlassCard className="!p-4 md:!p-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-emerald-500 to-cyan-600 flex items-center justify-center">
+              <CheckCircle2 className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-400">Status</p>
+              <p className="text-lg font-bold text-white">
+                {todayAttendance?.marked ? "Present" : "Not Marked"}
+              </p>
+            </div>
+          </div>
+        </GlassCard>
+        <GlassCard className="!p-4 md:!p-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
+              <Target className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-400">Attendance</p>
+              <p className="text-lg font-bold text-white">{attendanceRate}%</p>
+            </div>
           </div>
         </GlassCard>
       </div>
+
+      {/* Charts Section */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+      >
+        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <Activity className="w-5 h-5 text-indigo-400" />
+          Weekly Attendance
+        </h2>
+
+        <div className="grid md:grid-cols-2 gap-4 md:gap-6">
+          {/* Weekly Bar Chart */}
+          <GlassCard className="!p-5 md:!p-6">
+            <h3 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-emerald-400" />
+              Last 7 Days
+            </h3>
+            <div className="h-52">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" vertical={false} />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fill: "#9ca3af", fontSize: 12 }}
+                    axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tick={{ fill: "#9ca3af", fontSize: 12 }}
+                    axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+                    tickLine={false}
+                    domain={[0, 1]}
+                    tickFormatter={(value) => (value === 1 ? "P" : value === 0 ? "A" : "")}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#1e293b",
+                      border: "1px solid #334155",
+                      borderRadius: "8px",
+                    }}
+                    labelStyle={{ color: "#fff" }}
+                    formatter={(value) => [
+                      value === 1 ? "Present" : "Absent",
+                      "Status",
+                    ]}
+                  />
+                  <Bar dataKey="value" radius={[4, 4, 0, 0]} name="Status">
+                    {chartData.map((entry: any, index: number) => (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={entry.value === 1 ? "#10b981" : "#ef4444"}
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </GlassCard>
+
+          {/* Stats Overview */}
+          <GlassCard className="!p-5 md:!p-6">
+            <h3 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
+              <Target className="w-4 h-4 text-purple-400" />
+              This Month
+            </h3>
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-400 text-sm">Present Days</span>
+                  <span className="text-emerald-400 font-bold text-xl">{presentCount}</span>
+                </div>
+                <div className="mt-2 h-2 bg-white/10 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-emerald-500 to-cyan-500 rounded-full"
+                    style={{ width: `${attendanceRate}%` }}
+                  />
+                </div>
+              </div>
+              <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20">
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-400 text-sm">Absent Days</span>
+                  <span className="text-red-400 font-bold text-xl">{absentCount}</span>
+                </div>
+                <div className="mt-2 h-2 bg-white/10 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-red-500 to-orange-500 rounded-full"
+                    style={{ width: `${100 - attendanceRate}%` }}
+                  />
+                </div>
+              </div>
+              <div className="p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/20">
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-400 text-sm">Attendance Rate</span>
+                  <span className="text-indigo-400 font-bold text-xl">{attendanceRate}%</span>
+                </div>
+              </div>
+              <div className="p-4 rounded-xl bg-purple-500/10 border border-purple-500/20">
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-400 text-sm">Total Records</span>
+                  <span className="text-purple-400 font-bold text-xl">{analytics?.totalRecords || 0}</span>
+                </div>
+              </div>
+            </div>
+          </GlassCard>
+        </div>
+      </motion.div>
+
+      {/* Recent History */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.2 }}
+      >
+        <GlassCard className="!p-5 md:!p-6">
+          <h3 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
+            <Clock className="w-4 h-4 text-cyan-400" />
+            Recent Attendance History
+          </h3>
+          <div className="space-y-2">
+            {analytics?.historyData?.length > 0 ? (
+              analytics.historyData.map((record: any) => (
+                <div
+                  key={record.id}
+                  className="flex items-center justify-between p-3 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-white font-medium">{record.date}</p>
+                      <p className="text-xs text-gray-500">{record.time}</p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-medium text-emerald-400">Present</span>
+                </div>
+              ))
+            ) : (
+              <p className="text-gray-500 text-sm text-center py-4">No attendance records yet</p>
+            )}
+          </div>
+        </GlassCard>
+      </motion.div>
 
       <AnimatePresence>
         {noFaceError && (
