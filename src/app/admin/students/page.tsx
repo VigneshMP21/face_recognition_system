@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
+import { useState, useEffect, useCallback } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
   ChevronLeft,
@@ -10,6 +10,8 @@ import {
   Phone,
   GraduationCap,
   CalendarDays,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import GlassCard from "@/components/ui/GlassCard";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
@@ -30,9 +32,11 @@ export default function AdminStudentsPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [search, setSearch] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<Student | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const limit = 10;
 
-  useEffect(() => {
+  const fetchStudents = useCallback(() => {
     setLoading(true);
     const params = new URLSearchParams({
       page: page.toString(),
@@ -47,6 +51,31 @@ export default function AdminStudentsPage() {
       })
       .finally(() => setLoading(false));
   }, [page, search]);
+
+  useEffect(() => {
+    fetchStudents();
+  }, [fetchStudents]);
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/students/${deleteTarget.id}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        setDeleteTarget(null);
+        fetchStudents();
+      } else {
+        const data = await res.json();
+        alert(data.error || "Failed to delete student");
+      }
+    } catch {
+      alert("Failed to delete student");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -108,6 +137,9 @@ export default function AdminStudentsPage() {
                   <th className="text-left p-4 text-sm font-medium text-gray-400 hidden lg:table-cell">
                     Joined
                   </th>
+                  <th className="text-center p-4 text-sm font-medium text-gray-400">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -155,6 +187,15 @@ export default function AdminStudentsPage() {
                         {new Date(student.createdAt).toLocaleDateString()}
                       </span>
                     </td>
+                    <td className="p-4 text-center">
+                      <button
+                        onClick={() => setDeleteTarget(student)}
+                        title="Delete student"
+                        className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 hover:text-red-300 transition-all"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
                   </motion.tr>
                 ))}
               </tbody>
@@ -186,6 +227,71 @@ export default function AdminStudentsPage() {
           </div>
         )}
       </GlassCard>
+
+      <AnimatePresence>
+        {deleteTarget && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            onClick={() => !deleting && setDeleteTarget(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md"
+            >
+              <GlassCard>
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-red-500/15 flex items-center justify-center shrink-0">
+                    <AlertTriangle className="w-6 h-6 text-red-400" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-white">
+                      Delete Student
+                    </h3>
+                    <p className="text-sm text-gray-400 mt-1">
+                      Are you sure you want to delete{" "}
+                      <span className="font-medium text-white">
+                        {deleteTarget.name}
+                      </span>{" "}
+                      ({deleteTarget.rollNumber})? This will also remove their
+                      attendance records and face data. This action cannot be
+                      undone.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-3 mt-6">
+                  <button
+                    onClick={() => setDeleteTarget(null)}
+                    disabled={deleting}
+                    className="px-4 py-2 rounded-xl text-sm font-medium bg-white/5 text-gray-300 hover:bg-white/10 transition-all disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleDelete}
+                    disabled={deleting}
+                    className="px-4 py-2 rounded-xl text-sm font-medium bg-red-500 text-white hover:bg-red-600 transition-all disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {deleting ? (
+                      "Deleting..."
+                    ) : (
+                      <>
+                        <Trash2 className="w-4 h-4" />
+                        Delete
+                      </>
+                    )}
+                  </button>
+                </div>
+              </GlassCard>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -1,74 +1,77 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
-  ChevronLeft,
-  ChevronRight,
   Download,
   CalendarDays,
   Clock,
-  Mail,
-  Phone,
+  CheckCircle2,
+  XCircle,
+  Users,
+  CalendarRange,
 } from "lucide-react";
 import GlassCard from "@/components/ui/GlassCard";
 import GradientButton from "@/components/ui/GradientButton";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 
-interface StudentRecord {
+interface AttendanceRecord {
   id: string;
   name: string;
   rollNumber: string;
-  email: string;
-  mobile: string;
-  attendanceCount: number;
-  lastAttendanceDate: string | null;
-  lastAttendanceTime: string | null;
+  status: "Present" | "Absent";
+  time: string | null;
+}
+
+function todayISO() {
+  return new Date().toISOString().split("T")[0];
 }
 
 export default function AdminAttendancePage() {
-  const [students, setStudents] = useState<StudentRecord[]>([]);
+  const [date, setDate] = useState(todayISO());
+  const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [markedDates, setMarkedDates] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
   const [search, setSearch] = useState("");
-  const limit = 10;
+  const [filter, setFilter] = useState<"all" | "present" | "absent">("all");
+
+  useEffect(() => {
+    fetch("/api/admin/attendance/dates")
+      .then((res) => res.json())
+      .then((data) => setMarkedDates(data.dates || []))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     setLoading(true);
-    const params = new URLSearchParams({
-      page: page.toString(),
-      limit: limit.toString(),
-      search,
-    });
-    fetch(`/api/admin/attendance?${params}`)
+    fetch(`/api/admin/attendance/by-date?date=${date}`)
       .then((res) => res.json())
-      .then((data) => {
-        setStudents(data.students);
-        setTotalPages(data.pagination.totalPages);
-      })
+      .then((data) => setRecords(data.records || []))
       .finally(() => setLoading(false));
-  }, [page, search]);
+  }, [date]);
+
+  const presentCount = records.filter((r) => r.status === "Present").length;
+  const absentCount = records.length - presentCount;
+
+  const filtered = records.filter((r) => {
+    const matchesSearch =
+      r.name.toLowerCase().includes(search.toLowerCase()) ||
+      r.rollNumber.toLowerCase().includes(search.toLowerCase());
+    const matchesFilter =
+      filter === "all" ||
+      (filter === "present" && r.status === "Present") ||
+      (filter === "absent" && r.status === "Absent");
+    return matchesSearch && matchesFilter;
+  });
 
   const exportCSV = () => {
-    const headers = [
-      "Name",
-      "Roll Number",
-      "Email",
-      "Mobile",
-      "Attendance Count",
-      "Last Attendance Date",
-      "Last Attendance Time",
-    ];
-    const rows = students.map((s) => [
-      s.name,
-      s.rollNumber,
-      s.email,
-      s.mobile,
-      s.attendanceCount,
-      s.lastAttendanceDate || "N/A",
-      s.lastAttendanceTime || "N/A",
+    const headers = ["Roll Number", "Name", "Status", "Time"];
+    const rows = filtered.map((r) => [
+      r.rollNumber,
+      r.name,
+      r.status,
+      r.time || "—",
     ]);
     const csv = [headers, ...rows]
       .map((row) => row.map((cell) => `"${cell}"`).join(","))
@@ -77,10 +80,18 @@ export default function AdminAttendancePage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `attendance-report-${new Date().toISOString().split("T")[0]}.csv`;
+    a.download = `attendance-${date}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
+
+  const formatLongDate = (d: string) =>
+    new Date(d + "T00:00:00").toLocaleDateString("en-US", {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    });
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -94,39 +105,121 @@ export default function AdminAttendancePage() {
             Attendance Records
           </h1>
           <p className="text-gray-400 mt-1">
-            View and manage all student attendance
+            Pick a date to view who was present or absent
           </p>
         </div>
-        <div className="flex gap-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-            <input
-              type="text"
-              placeholder="Search students..."
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-              className="pl-10 pr-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 w-full sm:w-64"
-            />
+        <GradientButton size="sm" onClick={exportCSV}>
+          <Download className="w-4 h-4" />
+          Export CSV
+        </GradientButton>
+      </motion.div>
+
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.05 }}
+        className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6"
+      >
+        <GlassCard className="lg:col-span-1">
+          <div className="flex items-center gap-2 mb-3">
+            <CalendarRange className="w-4 h-4 text-indigo-400" />
+            <h3 className="text-sm font-semibold text-white">Select Date</h3>
           </div>
-          <GradientButton size="sm" onClick={exportCSV}>
-            <Download className="w-4 h-4" />
-            CSV
-          </GradientButton>
+          <input
+            type="date"
+            value={date}
+            max={todayISO()}
+            onChange={(e) => setDate(e.target.value)}
+            className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:border-indigo-500 [color-scheme:dark]"
+          />
+          <p className="text-xs text-gray-500 mt-2">{formatLongDate(date)}</p>
+
+          {markedDates.length > 0 && (
+            <div className="mt-4">
+              <p className="text-[10px] uppercase tracking-wider text-gray-500 mb-2">
+                Recent days with records
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {markedDates.slice(0, 8).map((d) => (
+                  <button
+                    key={d}
+                    onClick={() => setDate(d)}
+                    className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-all ${
+                      d === date
+                        ? "bg-indigo-500 text-white"
+                        : "bg-white/5 text-gray-400 hover:bg-white/10"
+                    }`}
+                  >
+                    {new Date(d + "T00:00:00").toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </GlassCard>
+
+        <div className="lg:col-span-2 grid grid-cols-3 gap-4">
+          <GlassCard className="flex flex-col justify-center">
+            <div className="flex items-center gap-2 text-gray-400 text-xs mb-1">
+              <Users className="w-3.5 h-3.5" /> Total
+            </div>
+            <p className="text-2xl font-bold text-white">{records.length}</p>
+          </GlassCard>
+          <GlassCard className="flex flex-col justify-center">
+            <div className="flex items-center gap-2 text-emerald-400 text-xs mb-1">
+              <CheckCircle2 className="w-3.5 h-3.5" /> Present
+            </div>
+            <p className="text-2xl font-bold text-emerald-400">{presentCount}</p>
+          </GlassCard>
+          <GlassCard className="flex flex-col justify-center">
+            <div className="flex items-center gap-2 text-red-400 text-xs mb-1">
+              <XCircle className="w-3.5 h-3.5" /> Absent
+            </div>
+            <p className="text-2xl font-bold text-red-400">{absentCount}</p>
+          </GlassCard>
         </div>
       </motion.div>
+
+      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+          <input
+            type="text"
+            placeholder="Search by name or roll number..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
+          />
+        </div>
+        <div className="flex gap-2">
+          {(["all", "present", "absent"] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`px-4 py-2.5 rounded-xl text-sm font-medium capitalize transition-all ${
+                filter === f
+                  ? "bg-indigo-500 text-white"
+                  : "bg-white/5 text-gray-400 hover:bg-white/10"
+              }`}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <GlassCard className="!p-0 overflow-hidden">
         {loading ? (
           <div className="p-8">
             <LoadingSpinner text="Loading records..." />
           </div>
-        ) : students.length === 0 ? (
+        ) : filtered.length === 0 ? (
           <div className="p-8 text-center text-gray-400">
             <CalendarDays className="w-12 h-12 mx-auto mb-3 text-gray-600" />
-            <p>No attendance records found</p>
+            <p>No matching records for this date</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -134,101 +227,65 @@ export default function AdminAttendancePage() {
               <thead>
                 <tr className="border-b border-white/5">
                   <th className="text-left p-4 text-sm font-medium text-gray-400">
-                    Student Name
-                  </th>
-                  <th className="text-left p-4 text-sm font-medium text-gray-400">
                     Roll Number
                   </th>
-                  <th className="text-left p-4 text-sm font-medium text-gray-400 hidden md:table-cell">
-                    Email
-                  </th>
-                  <th className="text-left p-4 text-sm font-medium text-gray-400 hidden lg:table-cell">
-                    Mobile
+                  <th className="text-left p-4 text-sm font-medium text-gray-400">
+                    Student Name
                   </th>
                   <th className="text-center p-4 text-sm font-medium text-gray-400">
-                    Attendance
+                    Status
                   </th>
-                  <th className="text-left p-4 text-sm font-medium text-gray-400 hidden lg:table-cell">
-                    Last Attendance
+                  <th className="text-left p-4 text-sm font-medium text-gray-400">
+                    Time
                   </th>
                 </tr>
               </thead>
               <tbody>
-                {students.map((student, i) => (
-                  <motion.tr
-                    key={student.id}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: i * 0.03 }}
-                    className="border-b border-white/5 hover:bg-white/5 transition-colors"
-                  >
-                    <td className="p-4">
-                      <span className="text-sm font-medium text-white">
-                        {student.name}
-                      </span>
-                    </td>
-                    <td className="p-4 text-sm text-gray-300">
-                      {student.rollNumber}
-                    </td>
-                    <td className="p-4 text-sm text-gray-400 hidden md:table-cell">
-                      <span className="flex items-center gap-1.5">
-                        <Mail className="w-3.5 h-3.5 text-purple-400" />
-                        {student.email}
-                      </span>
-                    </td>
-                    <td className="p-4 text-sm text-gray-400 hidden lg:table-cell">
-                      <span className="flex items-center gap-1.5">
-                        <Phone className="w-3.5 h-3.5 text-cyan-400" />
-                        {student.mobile}
-                      </span>
-                    </td>
-                    <td className="p-4 text-center">
-                      <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 font-bold text-sm">
-                        {student.attendanceCount}
-                      </span>
-                    </td>
-                    <td className="p-4 text-sm text-gray-400 hidden lg:table-cell">
-                      {student.lastAttendanceDate ? (
-                        <span className="flex items-center gap-1.5">
-                          <CalendarDays className="w-3.5 h-3.5 text-indigo-400" />
-                          {new Date(
-                            student.lastAttendanceDate
-                          ).toLocaleDateString()}
-                          <Clock className="w-3.5 h-3.5 text-purple-400 ml-1" />
-                          {student.lastAttendanceTime}
-                        </span>
-                      ) : (
-                        <span className="text-gray-600">—</span>
-                      )}
-                    </td>
-                  </motion.tr>
-                ))}
+                <AnimatePresence mode="popLayout">
+                  {filtered.map((r, i) => (
+                    <motion.tr
+                      key={r.id}
+                      layout
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ delay: i * 0.02 }}
+                      className="border-b border-white/5 hover:bg-white/5 transition-colors"
+                    >
+                      <td className="p-4 text-sm text-gray-300 font-medium">
+                        {r.rollNumber}
+                      </td>
+                      <td className="p-4 text-sm font-medium text-white">
+                        {r.name}
+                      </td>
+                      <td className="p-4 text-center">
+                        {r.status === "Present" ? (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Present
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-red-500/15 text-red-400 border border-red-500/20">
+                            <XCircle className="w-3.5 h-3.5" />
+                            Absent
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-4 text-sm text-gray-400">
+                        {r.time ? (
+                          <span className="flex items-center gap-1.5">
+                            <Clock className="w-3.5 h-3.5 text-purple-400" />
+                            {r.time}
+                          </span>
+                        ) : (
+                          <span className="text-gray-600">—</span>
+                        )}
+                      </td>
+                    </motion.tr>
+                  ))}
+                </AnimatePresence>
               </tbody>
             </table>
-          </div>
-        )}
-
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between p-4 border-t border-white/5">
-            <p className="text-sm text-gray-500">
-              Page {page} of {totalPages}
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="p-2 rounded-lg hover:bg-white/5 text-gray-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
-                className="p-2 rounded-lg hover:bg-white/5 text-gray-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
           </div>
         )}
       </GlassCard>

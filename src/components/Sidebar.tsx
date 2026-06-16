@@ -38,6 +38,11 @@ const adminLinks = [
   { href: "/admin/profile", icon: User, label: "Profile" },
   { href: "/admin/attendance", icon: CalendarCheck, label: "Attendance" },
   { href: "/admin/students", icon: Users, label: "Students" },
+  {
+    href: "/admin/face-register-students",
+    icon: ScanFaceIcon,
+    label: "Face Register",
+  },
 ];
 
 export default function Sidebar({ role }: SidebarProps) {
