@@ -627,9 +627,9 @@ body {
     display: flex;
   }
 
-  /* Push page content below the fixed mobile header (header height = 3.5rem) */
+  /* Push page content below the fixed mobile header (header height = 4rem) */
   .main-with-mobile-header {
-    padding-top: 4.5rem;
+    padding-top: 4.25rem;
   }
 
   /* ── Base Typography ─────────────────────── */

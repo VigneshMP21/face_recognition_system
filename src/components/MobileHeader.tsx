@@ -14,17 +14,17 @@ interface MobileHeaderProps {
  */
 export default function MobileHeader({ onToggleSidebar }: MobileHeaderProps) {
   return (
-    <header className="mobile-header fixed top-0 left-0 right-0 z-40 items-center justify-between h-14 px-3 bg-[#0a0a1a]/90 backdrop-blur-xl border-b border-white/10 shadow-lg shadow-black/20">
+    <header className="mobile-header fixed top-0 left-0 right-0 z-40 flex items-center justify-between h-16 px-4 bg-[#0a0a1a]/90 backdrop-blur-xl border-b border-white/10 shadow-lg shadow-black/20">
       {/* Left: Logo + Name */}
-      <div className="flex items-center gap-2.5 min-w-0">
-        <div className="w-9 h-9 rounded-xl overflow-hidden flex items-center justify-center flex-shrink-0 shadow-lg shadow-indigo-500/20 bg-white/10">
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="w-11 h-11 rounded-2xl overflow-hidden flex items-center justify-center flex-shrink-0 shadow-lg shadow-indigo-500/20 bg-white/10">
           <img
             src="/smart_attendance.png"
             alt="Smart Attendance Logo"
             className="w-full h-full object-contain"
           />
         </div>
-        <span className="text-base font-bold text-white truncate">
+        <span className="text-lg font-bold text-white truncate">
           Smart
           <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-purple-400 to-cyan-400">
             Attendance
