@@ -30,9 +30,13 @@ export default function Header() {
             <motion.div
               whileHover={{ rotate: -10, scale: 1.1 }}
               whileTap={{ scale: 0.95 }}
-              className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl overflow-hidden bg-gradient-to-br from-indigo-500 via-purple-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-indigo-500/20"
+              className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl overflow-hidden flex items-center justify-center shadow-lg shadow-indigo-500/20"
             >
-              <ScanFace className="w-5 h-5 md:w-6 md:h-6 text-white" />
+              <img
+                src="/smart_attendance.png"
+                alt="Smart Attendance Logo"
+                className="w-full h-full object-contain bg-white/10"
+              />
             </motion.div>
             <div className="hidden sm:block">
               <h1 className="text-lg md:text-xl font-bold text-white">

@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ScanFace, Eye, EyeOff, ArrowLeft, Loader2 } from "lucide-react";
+import { Eye, EyeOff, ArrowLeft, Loader2 } from "lucide-react";
 import Link from "next/link";
 import GlassCard from "@/components/ui/GlassCard";
 import GradientButton from "@/components/ui/GradientButton";
@@ -84,8 +84,12 @@ export default function RegisterPage() {
               <span className="hidden sm:inline">Back to Home</span>
               <span className="sm:hidden">Back</span>
             </Link>
-            <div className="logo-wrapper w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-cyan-500 flex items-center justify-center mx-auto mb-3 md:mb-4 shadow-lg shadow-indigo-500/20">
-              <ScanFace className="w-6 h-6 md:w-7 md:h-7 text-white" />
+            <div className="logo-wrapper w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-white/10 flex items-center justify-center mx-auto mb-3 md:mb-4 shadow-lg shadow-indigo-500/20">
+              <img
+                src="/smart_attendance.png"
+                alt="Smart Attendance Logo"
+                className="w-full h-full object-contain rounded-2xl"
+              />
             </div>
             <h1 className="text-xl md:text-2xl font-bold text-white">Create Account</h1>
             <p className="text-xs md:text-sm text-gray-400 mt-1.5">

@@ -18,6 +18,7 @@ import {
   Star,
 } from "lucide-react";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
+import ImageCropper from "@/components/ImageCropper";
 
 export default function ProfilePage() {
   const [user, setUser] = useState<any>(null);
@@ -27,6 +28,8 @@ export default function ProfilePage() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [profileImage, setProfileImage] = useState<string | null>(null);
+  const [showCropper, setShowCropper] = useState(false);
+  const [uploadImage, setUploadImage] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ name: "", mobile: "" });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -36,22 +39,36 @@ export default function ProfilePage() {
       .then((data) => {
         setUser(data.user);
         setEditForm({ name: data.user.name, mobile: data.user.mobile });
-        const savedImage = localStorage.getItem(`profile_image_${data.user.id}`);
-        if (savedImage) setProfileImage(savedImage);
+        // Load profile image from user data or localStorage
+        if (data.user.profileImage) {
+          setProfileImage(data.user.profileImage);
+        } else {
+          const savedImage = localStorage.getItem(`profile_image_${data.user.id}`);
+          if (savedImage) setProfileImage(savedImage);
+        }
       })
       .finally(() => setLoading(false));
   }, []);
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onloadend = () => {
-      const base64 = reader.result as string;
-      setProfileImage(base64);
-      if (user) localStorage.setItem(`profile_image_${user.id}`, base64);
+      setUploadImage(reader.result as string);
+      setShowCropper(true);
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleCropComplete = (croppedImage: string) => {
+    setProfileImage(croppedImage);
+    setShowCropper(false);
+    setUploadImage(null);
+    // Save to localStorage (in production, upload to server)
+    if (user) {
+      localStorage.setItem(`profile_image_${user.id}`, croppedImage);
+    }
   };
 
   const handleSave = async () => {
@@ -159,7 +176,7 @@ export default function ProfilePage() {
                   type="file"
                   accept="image/*"
                   className="hidden"
-                  onChange={handleImageUpload}
+                  onChange={handleImageSelect}
                 />
               </div>
 
@@ -338,6 +355,18 @@ export default function ProfilePage() {
           </div>
         </motion.div>
       </div>
+
+      {/* Image Cropper Modal */}
+      {showCropper && uploadImage && (
+        <ImageCropper
+          image={uploadImage}
+          onCropComplete={handleCropComplete}
+          onClose={() => {
+            setShowCropper(false);
+            setUploadImage(null);
+          }}
+        />
+      )}
     </div>
   );
 }

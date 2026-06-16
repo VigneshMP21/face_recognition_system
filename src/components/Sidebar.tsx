@@ -67,8 +67,12 @@ export default function Sidebar({ role }: SidebarProps) {
   const sidebarContent = (
     <div className="flex flex-col h-full">
       <div className="p-4 flex items-center gap-3 border-b border-white/5">
-        <div className="w-10 h-10 md:w-11 md:h-11 rounded-xl md:rounded-xl overflow-hidden bg-gradient-to-br from-indigo-500 via-purple-500 to-cyan-500 flex items-center justify-center flex-shrink-0 shadow-lg shadow-indigo-500/20">
-          <ScanFaceIcon className="w-5 h-5 md:w-6 md:h-6 text-white" />
+        <div className="w-10 h-10 md:w-11 md:h-11 rounded-xl md:rounded-xl overflow-hidden flex items-center justify-center flex-shrink-0 shadow-lg shadow-indigo-500/20 bg-white/10">
+          <img
+            src="/smart_attendance.png"
+            alt="Smart Attendance Logo"
+            className="w-full h-full object-contain"
+          />
         </div>
         {!collapsed && (
           <div className="overflow-hidden">
