@@ -68,6 +68,11 @@ export default function CameraModal({
   const [facePresent, setFacePresent]           = useState(false);
   const [faceQualityValid, setFaceQualityValid] = useState(false);
 
+  /* ── Camera device selection (fixes DroidCam / virtual cams on desktop) ── */
+  const [videoDevices, setVideoDevices]         = useState<MediaDeviceInfo[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
+  const [cameraError, setCameraError]           = useState("");
+
   const [timeLeft, setTimeLeft]                   = useState(60);
   const [stabilityProgress, setStabilityProgress] = useState(0);
   const [failureTitle, setFailureTitle]           = useState("");
@@ -126,6 +131,89 @@ export default function CameraModal({
       if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
     }
   }, [open]);
+
+  /* ──────────────────────────────────────────────────────────────
+     CAMERA DEVICE DISCOVERY
+     ────────────────────────────────────────────────────────────
+     On desktop, DroidCam / OBS / virtual cameras often aren't the
+     default device, or the browser hasn't been granted permission
+     yet (so labels are empty). We:
+       1. Request permission once (so device labels populate).
+       2. Enumerate video inputs.
+       3. Restore the last-used device, else auto-pick DroidCam, else
+          fall back to the first available camera.
+  ─────────────────────────────────────────────────────────────── */
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+
+    async function discoverCameras() {
+      try {
+        // Trigger a permission prompt so enumerateDevices returns labels.
+        try {
+          const probe = await navigator.mediaDevices.getUserMedia({ video: true });
+          probe.getTracks().forEach((t) => t.stop());
+        } catch {
+          /* permission may be denied — handled below when we try to open */
+        }
+
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        if (cancelled) return;
+        const vids = devices.filter((d) => d.kind === "videoinput");
+        setVideoDevices(vids);
+
+        if (vids.length === 0) {
+          setCameraError("No camera found. Connect a webcam or start DroidCam, then reopen.");
+          return;
+        }
+
+        const saved = (() => { try { return localStorage.getItem("selectedVideoDeviceId"); } catch { return null; } })();
+        const savedExists = saved && vids.some((v) => v.deviceId === saved);
+        const droid = vids.find((v) => /droid\s?cam|obs|virtual/i.test(v.label));
+
+        if (savedExists) setSelectedDeviceId(saved);
+        else if (droid)  setSelectedDeviceId(droid.deviceId);
+        else             setSelectedDeviceId(vids[0].deviceId);
+      } catch (err: any) {
+        setCameraError("Unable to access cameras. Check browser permissions. " + (err?.message ?? ""));
+      }
+    }
+
+    discoverCameras();
+    return () => { cancelled = true; };
+  }, [open]);
+
+  /* ── Verify the selected camera actually opens; persist choice ── */
+  useEffect(() => {
+    if (!open || !selectedDeviceId) return;
+    let active = true;
+
+    (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { deviceId: { exact: selectedDeviceId } },
+        });
+        stream.getTracks().forEach((t) => t.stop());
+        if (!active) return;
+        setCameraError("");
+        try { localStorage.setItem("selectedVideoDeviceId", selectedDeviceId); } catch {}
+      } catch (err: any) {
+        if (!active) return;
+        const name = err?.name ?? "Error";
+        setCameraError(
+          `Could not open the selected camera (${name}). If you're using DroidCam, make sure the DroidCam ` +
+          `client is running and connected, then pick it from the dropdown above.`
+        );
+      }
+    })();
+
+    return () => { active = false; };
+  }, [open, selectedDeviceId]);
+
+  /* ── Build constraints for react-webcam ──────────────────────── */
+  const videoConstraints: MediaTrackConstraints = selectedDeviceId
+    ? { deviceId: { exact: selectedDeviceId } }
+    : { facingMode: "user" };
 
 
   /* ── Load face-api models ────────────────────────────────────── */
@@ -602,13 +690,53 @@ export default function CameraModal({
                   ) : (
                     /* Circular scanner with live webcam */
                     <div style={{ marginBottom: 40 }}>
+                      {/* Camera picker — lets desktop users select DroidCam/virtual cams */}
+                      {videoDevices.length > 1 && (
+                        <div className="flex justify-center mb-3">
+                          <select
+                            value={selectedDeviceId ?? ""}
+                            onChange={(e) => setSelectedDeviceId(e.target.value)}
+                            className="bg-white/5 text-sm text-white rounded-lg px-3 py-1.5 border border-white/10 focus:outline-none focus:border-indigo-500/50 max-w-[260px] truncate"
+                          >
+                            {videoDevices.map((d, i) => (
+                              <option key={d.deviceId} value={d.deviceId} className="bg-gray-900">
+                                {d.label || `Camera ${i + 1}`}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      {cameraError && (
+                        <div className="flex items-start gap-2 mb-3 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30 max-w-[300px] mx-auto">
+                          <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                          <p className="text-[11px] text-red-300 leading-relaxed">{cameraError}</p>
+                        </div>
+                      )}
+
                       <CircularScanner faceDetected={facePresent} isValid={faceQualityValid} size={296}>
                         <Webcam
                           ref={webcamRef}
                           screenshotFormat="image/jpeg"
                           className="w-full h-full object-cover"
                           mirrored
-                          style={{ borderRadius: "50%" }}
+                          videoConstraints={videoConstraints}
+                          onUserMediaError={(err) => {
+                            const name = (err as any)?.name ?? "Error";
+                            setCameraError(
+                              `Could not open the selected camera (${name}). If using DroidCam, ensure the ` +
+                              `client is running and connected, then pick it from the dropdown.`
+                            );
+                          }}
+                          style={{
+                            borderRadius: "50%",
+                            position: "absolute",
+                            top: 0,
+                            left: 0,
+                            minWidth: "100%",
+                            minHeight: "100%",
+                            objectFit: "cover",
+                          }}
                         />
                       </CircularScanner>
                     </div>
