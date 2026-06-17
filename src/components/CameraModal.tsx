@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Webcam from "react-webcam";
-import { X, Loader2, CheckCircle2, AlertCircle, ScanFace, XCircle, Clock, User, Hash, CalendarDays } from "lucide-react";
+import { X, Loader2, CheckCircle2, AlertCircle, ScanFace, XCircle, Clock, User, Hash, CalendarDays, RotateCcw } from "lucide-react";
 import GradientButton from "./ui/GradientButton";
 import CircularScanner from "./CircularScanner";
 import * as faceapi from "face-api.js";
@@ -72,6 +72,9 @@ export default function CameraModal({
   const [videoDevices, setVideoDevices]         = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [cameraError, setCameraError]           = useState("");
+  const [isRefreshing, setIsRefreshing]         = useState(false);
+  const [cameraReady, setCameraReady]           = useState(false);
+  const [webcamKey, setWebcamKey]               = useState(0);
 
   const [timeLeft, setTimeLeft]                   = useState(60);
   const [stabilityProgress, setStabilityProgress] = useState(0);
@@ -183,32 +186,51 @@ export default function CameraModal({
     return () => { cancelled = true; };
   }, [open]);
 
-  /* ── Verify the selected camera actually opens; persist choice ── */
-  useEffect(() => {
-    if (!open || !selectedDeviceId) return;
-    let active = true;
+  /* ── Manual camera refresh function ────────────────────────────── */
+  const refreshCameras = useCallback(async () => {
+    setIsRefreshing(true);
+    setCameraError("");
 
-    (async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { deviceId: { exact: selectedDeviceId } },
-        });
-        stream.getTracks().forEach((t) => t.stop());
-        if (!active) return;
-        setCameraError("");
-        try { localStorage.setItem("selectedVideoDeviceId", selectedDeviceId); } catch {}
-      } catch (err: any) {
-        if (!active) return;
-        const name = err?.name ?? "Error";
-        setCameraError(
-          `Could not open the selected camera (${name}). If you're using DroidCam, make sure the DroidCam ` +
-          `client is running and connected, then pick it from the dropdown above.`
-        );
+    try {
+      // Re-request permission to get updated device labels
+      const probe = await navigator.mediaDevices.getUserMedia({ video: true });
+      probe.getTracks().forEach((t) => t.stop());
+
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const vids = devices.filter((d) => d.kind === "videoinput");
+      setVideoDevices(vids);
+
+      if (vids.length === 0) {
+        setCameraError("No camera found. Connect a webcam or start DroidCam, then click refresh.");
+        setIsRefreshing(false);
+        return;
       }
-    })();
 
-    return () => { active = false; };
-  }, [open, selectedDeviceId]);
+      // Auto-select DroidCam if found, otherwise keep current selection or use first
+      const droid = vids.find((v) => /droid\s?cam|obs|virtual/i.test(v.label));
+      const currentStillExists = selectedDeviceId && vids.some((v) => v.deviceId === selectedDeviceId);
+
+      if (droid && !currentStillExists) {
+        setSelectedDeviceId(droid.deviceId);
+      } else if (!currentStillExists) {
+        setSelectedDeviceId(vids[0].deviceId);
+      }
+
+      setCameraError("");
+      setWebcamKey((k) => k + 1);
+    } catch (err: any) {
+      setCameraError("Unable to refresh cameras: " + (err?.message ?? "Unknown error"));
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [selectedDeviceId]);
+
+  /* ── Persist selected camera choice ── */
+  useEffect(() => {
+    if (selectedDeviceId) {
+      try { localStorage.setItem("selectedVideoDeviceId", selectedDeviceId); } catch {}
+    }
+  }, [selectedDeviceId]);
 
   /* ── Build constraints for react-webcam ──────────────────────── */
   const videoConstraints: MediaTrackConstraints = selectedDeviceId
@@ -691,12 +713,12 @@ export default function CameraModal({
                     /* Circular scanner with live webcam */
                     <div style={{ marginBottom: 40 }}>
                       {/* Camera picker — lets desktop users select DroidCam/virtual cams */}
-                      {videoDevices.length > 1 && (
-                        <div className="flex justify-center mb-3">
+                      <div className="flex justify-center items-center gap-2 mb-3">
+                        {videoDevices.length > 1 && (
                           <select
                             value={selectedDeviceId ?? ""}
                             onChange={(e) => setSelectedDeviceId(e.target.value)}
-                            className="bg-white/5 text-sm text-white rounded-lg px-3 py-1.5 border border-white/10 focus:outline-none focus:border-indigo-500/50 max-w-[260px] truncate"
+                            className="bg-white/5 text-sm text-white rounded-lg px-3 py-1.5 border border-white/10 focus:outline-none focus:border-indigo-500/50 max-w-[200px] truncate"
                           >
                             {videoDevices.map((d, i) => (
                               <option key={d.deviceId} value={d.deviceId} className="bg-gray-900">
@@ -704,24 +726,50 @@ export default function CameraModal({
                               </option>
                             ))}
                           </select>
-                        </div>
-                      )}
+                        )}
+                        <button
+                          onClick={refreshCameras}
+                          disabled={isRefreshing}
+                          className="p-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-gray-400 hover:text-white transition-colors disabled:opacity-50"
+                          title="Refresh camera list"
+                        >
+                          <RotateCcw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                        </button>
+                        {cameraError && !cameraReady && (
+                          <button
+                            onClick={() => setWebcamKey((k) => k + 1)}
+                            className="px-2.5 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 text-xs border border-amber-500/30 hover:bg-amber-500/30 transition-colors"
+                            title="Remount camera and try again"
+                          >
+                            Try Again
+                          </button>
+                        )}
+                      </div>
 
                       {cameraError && (
                         <div className="flex items-start gap-2 mb-3 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30 max-w-[300px] mx-auto">
                           <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
-                          <p className="text-[11px] text-red-300 leading-relaxed">{cameraError}</p>
+                          <div className="text-[11px] text-red-300 leading-relaxed">
+                            <p>{cameraError}</p>
+                            <p className="mt-1 text-red-400/80">Make sure DroidCam is running and permitted, then click "Try Again" or "Refresh".</p>
+                          </div>
                         </div>
                       )}
 
                       <CircularScanner faceDetected={facePresent} isValid={faceQualityValid} size={296}>
                         <Webcam
+                          key={webcamKey}
                           ref={webcamRef}
                           screenshotFormat="image/jpeg"
                           className="w-full h-full object-cover"
                           mirrored
                           videoConstraints={videoConstraints}
+                          onUserMedia={() => {
+                            setCameraReady(true);
+                            setCameraError("");
+                          }}
                           onUserMediaError={(err) => {
+                            setCameraReady(false);
                             const name = (err as any)?.name ?? "Error";
                             setCameraError(
                               `Could not open the selected camera (${name}). If using DroidCam, ensure the ` +
