@@ -38,7 +38,7 @@ export default function Header() {
                 className="w-full h-full object-contain bg-white/10"
               />
             </motion.div>
-            <div className="hidden sm:block">
+            <div className="block">
               <h1 className="text-lg md:text-xl font-bold text-white">
                 Smart
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-purple-400 to-cyan-400">
