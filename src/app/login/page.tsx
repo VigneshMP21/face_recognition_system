@@ -180,11 +180,11 @@ function LoginForm() {
 
           <div className="mt-4 pt-4 border-t border-white/10 text-center">
             <Link
-              href="/"
+              href="/forgot-password"
               className="inline-flex items-center gap-1.5 text-gray-400 hover:text-white transition-colors text-sm"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
-              Back to Home
+              Forgot Password?
             </Link>
           </div>
 
