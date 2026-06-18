@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     // Update password
     await prisma.user.update({
       where: { email },
-      data: { password: hashedPassword },
+      data: { passwordHash: hashedPassword },
     });
 
     // Clear OTP
